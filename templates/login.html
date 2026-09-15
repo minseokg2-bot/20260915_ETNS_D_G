@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>로그인 · 이트너스몰 배송운영 관리</title>
+  <title>로그인 · 오더체크</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
   <div class="login-wrap">
     <div class="login-card">
-      <h1>이트너스몰 배송운영 관리</h1>
-      <p class="sub">행사별 미주문자 확인과 1차 안내를 관리하는 사내 도구입니다.</p>
+      <h1>오더체크</h1>
+      <p class="sub">이트너스몰 행사별 미주문자 확인과 1차 안내를 관리하는 사내 도구입니다.</p>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}

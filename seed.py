@@ -121,24 +121,40 @@ def seed_if_empty():
     db.session.add(past)
     db.session.flush()
 
-    for u, dest, _, _ in employee_users[:4]:
-        order = _make_order(
-            past, u, dest, True, None, today - timedelta(days=30)
-        )
+    # 각 건마다 발송·회신 상태를 다르게 줘서, 화면을 처음 열었을 때부터
+    # 발송실패→재발송, 회신완료→처리 같은 기능을 바로 만져볼 수 있게 한다.
+    past_cases = [
+        # (발송상태, 회신 내용, 회신 유형, 처리상태)
+        (Notification.STATUS_SENT, "이미 다른 채널로 주문했습니다. 확인 부탁드립니다.",
+         "주문 예정", Notification.PROCESS_DONE),
+        (Notification.STATUS_SENT, None, None, Notification.PROCESS_UNHANDLED),  # 회신 대기
+        (Notification.STATUS_FAILED, None, None, Notification.PROCESS_UNHANDLED),  # 발송 실패 데모
+        (Notification.STATUS_SENT, "배송지를 변경하고 싶습니다. 연락 가능한 시간이 언제일까요?",
+         "배송지 변경 요청", Notification.PROCESS_IN_PROGRESS),
+    ]
+    for (u, dest, _, _), (status, reply, category, process) in zip(employee_users[:4], past_cases):
+        order = _make_order(past, u, dest, True, None, today - timedelta(days=30))
         order.notice_status = "1차 안내 완료"
         db.session.add(order)
         db.session.flush()
         subject, content = generate_email(past, order)
-        db.session.add(
-            Notification(
-                event_id=past.id,
-                user_id=u.id,
-                order_id=order.id,
-                subject=subject,
-                content=content,
-                status=Notification.STATUS_SENT,
-                sent_at=datetime.now() - timedelta(days=40),
-            )
+        n = Notification(
+            event_id=past.id,
+            user_id=u.id,
+            order_id=order.id,
+            subject=subject,
+            content=content,
+            status=status,
+            process_status=process,
         )
+        if status == Notification.STATUS_SENT:
+            n.sent_at = datetime.now() - timedelta(days=40)
+        else:
+            n.fail_reason = "임시 발송 오류 (시뮬레이션)"
+        if reply:
+            n.reply_content = reply
+            n.reply_category = category
+            n.reply_at = datetime.now() - timedelta(days=39)
+        db.session.add(n)
 
     db.session.commit()

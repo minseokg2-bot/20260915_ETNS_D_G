@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}대시보드 · 배송운영 관리{% endblock %}
-{% block page_title %}배송운영 관리자 대시보드{% endblock %}
+{% block title %}대시보드 · 오더체크{% endblock %}
+{% block page_title %}오더체크 대시보드{% endblock %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -88,6 +88,23 @@
       <canvas id="notifyChart" height="180"></canvas>
     </div>
   </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">
+      이메일 발송 · 회신 현황
+      <span class="muted"><a href="{{ url_for('admin_notifications', event_id=event.id) }}">안내메일 관리로 이동</a></span>
+    </div>
+    <div class="kpi-row" id="send-kpi-row" style="margin-bottom:14px;">
+      <div class="kpi" style="--kpi-color:#2563eb"><div class="label">전체 발송대상</div><div class="value" id="dkpi-total">{{ notify_summary.total }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#1a7f5a"><div class="label">발송 완료</div><div class="value" id="dkpi-sent">{{ notify_summary.sent }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#b7791f"><div class="label">발송 대기</div><div class="value" id="dkpi-pending">{{ notify_summary.pending }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#c0392b"><div class="label">발송 실패</div><div class="value" id="dkpi-failed">{{ notify_summary.failed }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#0f2a4a"><div class="label">회신 완료</div><div class="value" id="dkpi-reply-done">{{ notify_summary.reply_done }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#6b7686"><div class="label">회신 대기</div><div class="value" id="dkpi-reply-pending">{{ notify_summary.reply_pending }}<span class="unit">건</span></div></div>
+    </div>
+    <div class="progress-bar"><div class="progress-bar-fill" id="dashboard-send-progress" style="width:{{ notify_summary.progress }}%"></div></div>
+    <p class="meta" style="margin:6px 0 0; font-size:13px; color:var(--muted);">발송 진행률 <strong id="dashboard-send-progress-text">{{ notify_summary.progress }}%</strong></p>
+  </div>
 {% endif %}
 {% endblock %}
 
@@ -138,6 +155,18 @@ async function refreshDashboard() {
     orderChart.update('none');
     notifyChart.data.datasets[0].data = [s.notify_today, s.notified, Math.max(s.total - s.notify_today - s.notified, 0)];
     notifyChart.update('none');
+
+    const ns = data.notify_summary;
+    if (ns) {
+      document.getElementById('dkpi-total').firstChild.textContent = ns.total;
+      document.getElementById('dkpi-sent').firstChild.textContent = ns.sent;
+      document.getElementById('dkpi-pending').firstChild.textContent = ns.pending;
+      document.getElementById('dkpi-failed').firstChild.textContent = ns.failed;
+      document.getElementById('dkpi-reply-done').firstChild.textContent = ns.reply_done;
+      document.getElementById('dkpi-reply-pending').firstChild.textContent = ns.reply_pending;
+      document.getElementById('dashboard-send-progress').style.width = ns.progress + '%';
+      document.getElementById('dashboard-send-progress-text').textContent = ns.progress + '%';
+    }
   } catch (e) { /* 네트워크 순간 오류는 다음 주기에 다시 시도 */ }
 }
 setInterval(refreshDashboard, 5000);

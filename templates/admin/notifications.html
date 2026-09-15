@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}안내메일 관리 · 배송운영 관리{% endblock %}
+{% block title %}안내메일 관리 · 오더체크{% endblock %}
 {% block page_title %}안내메일 관리{% endblock %}
 
 {% block content %}
@@ -77,7 +77,7 @@
 
   <div class="card">
     <div class="card-title">
-      2단계 — 발송 대상 확인 및 1차 안내 발송
+      2단계 — 발송 대상 확인 및 이메일 일괄 발송
       <span class="muted">초안 {{ drafts|length }}건</span>
     </div>
 
@@ -106,17 +106,19 @@
         </table>
       </div>
 
-      <div style="margin-top:14px; display:flex; gap:10px;">
+      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
         <form method="post">
           <input type="hidden" name="action" value="recheck">
           <input type="hidden" name="event_id" value="{{ event.id }}">
           <button class="btn" type="submit">🔄 발송 대상 확인 (그 사이 주문완료자 제외)</button>
         </form>
-        <form method="post" onsubmit="return confirm('{{ drafts|length }}건의 안내메일을 발송하시겠습니까?');">
-          <input type="hidden" name="action" value="send">
-          <input type="hidden" name="event_id" value="{{ event.id }}">
-          <button class="btn btn-primary" type="submit">1차 안내 발송</button>
-        </form>
+        <button class="btn btn-primary" type="button" id="btn-start-send">📤 이메일 일괄 발송 시작</button>
+      </div>
+
+      <div id="send-progress-box" hidden style="margin-top:16px;">
+        <div class="progress-bar"><div class="progress-bar-fill" id="send-progress-fill" style="width:0%"></div></div>
+        <p class="meta" id="send-progress-text" style="margin:6px 0 0; font-size:13px; color:var(--muted);">준비 중…</p>
+        <ul id="send-log" style="list-style:none; margin:10px 0 0; padding:0; max-height:160px; overflow-y:auto; font-size:12.5px;"></ul>
       </div>
 
       <details style="margin-top:16px;">
@@ -130,5 +132,188 @@
       <p class="empty-state">아직 생성된 초안이 없습니다. 위에서 대상을 선택하고 안내문을 생성해 주세요.</p>
     {% endif %}
   </div>
+
+  <div class="card">
+    <div class="card-title">발송·회신 현황 요약</div>
+    <div class="kpi-row" id="notify-kpi-row" style="margin-bottom:14px;">
+      <div class="kpi" style="--kpi-color:#2563eb"><div class="label">전체 발송대상</div><div class="value" id="nkpi-total">{{ summary.total }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#1a7f5a"><div class="label">발송 완료</div><div class="value" id="nkpi-sent">{{ summary.sent }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#b7791f"><div class="label">발송 대기</div><div class="value" id="nkpi-pending">{{ summary.pending }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#c0392b"><div class="label">발송 실패</div><div class="value" id="nkpi-failed">{{ summary.failed }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#0f2a4a"><div class="label">회신 완료</div><div class="value" id="nkpi-reply-done">{{ summary.reply_done }}<span class="unit">건</span></div></div>
+      <div class="kpi" style="--kpi-color:#6b7686"><div class="label">회신 대기</div><div class="value" id="nkpi-reply-pending">{{ summary.reply_pending }}<span class="unit">건</span></div></div>
+    </div>
+    <div class="progress-bar"><div class="progress-bar-fill" id="summary-progress-fill" style="width:{{ summary.progress }}%"></div></div>
+    <p class="meta" style="margin:6px 0 0; font-size:13px; color:var(--muted);">전체 발송 진행률 <strong id="summary-progress-text">{{ summary.progress }}%</strong></p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">조직원별 발송·회신 상세</div>
+    {% if processed %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>조직원</th><th>주문상태</th><th>연락 이메일</th><th>발송상태</th>
+              <th>회신상태</th><th>회신 유형</th><th>회신일시</th><th>처리상태</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for n in processed %}
+            <tr>
+              <td class="name-cell">{{ n.recipient.name }} <span class="muted" style="font-weight:400;">({{ n.recipient.department }})</span></td>
+              <td>{% if n.order.ordered %}<span class="badge badge-ok">주문완료</span>{% else %}<span class="badge badge-danger">미주문</span>{% endif %}</td>
+              <td>{{ n.order.email or '-' }}</td>
+              <td>
+                {% if n.status == '발송 완료' %}<span class="badge badge-ok">발송 완료</span>
+                {% elif n.status == '발송 실패' %}<span class="badge badge-danger">발송 실패</span>
+                {% elif n.status == '발송 제외' %}<span class="badge badge-muted">발송 제외</span>
+                {% else %}<span class="badge badge-warn">{{ n.status }}</span>{% endif %}
+                {% if n.fail_reason %}<div class="meta" style="font-size:11px; color:var(--danger);">{{ n.fail_reason }}</div>{% endif %}
+              </td>
+              <td>{% if n.reply_status == '회신 완료' %}<span class="badge badge-navy">회신 완료</span>{% else %}<span class="badge badge-muted">회신 대기</span>{% endif %}</td>
+              <td>{{ n.reply_category or '-' }}</td>
+              <td>{{ n.reply_at.strftime('%m/%d %H:%M') if n.reply_at else '-' }}</td>
+              <td>
+                {% if n.process_status == '처리 완료' %}<span class="badge badge-ok">처리 완료</span>
+                {% elif n.process_status == '처리 중' %}<span class="badge badge-warn">처리 중</span>
+                {% else %}<span class="badge badge-muted">미처리</span>{% endif %}
+              </td>
+              <td style="display:flex; gap:6px;">
+                {% if n.status == '발송 실패' %}
+                  <button class="btn btn-sm" onclick="resendNotification({{ n.id }}, this)">재발송</button>
+                {% endif %}
+                {% if n.reply_content %}
+                  <button class="btn btn-sm btn-ghost" onclick="toggleReply({{ n.id }})">회신 보기</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% if n.reply_content %}
+            <tr id="reply-row-{{ n.id }}" hidden>
+              <td colspan="9">
+                <div class="mail-preview" style="margin-bottom:10px;">{{ n.reply_content }}</div>
+                <form method="post" action="{{ url_for('admin_update_notification_process', notification_id=n.id) }}" class="form-row" style="align-items:flex-end;">
+                  <label style="flex:none; width:160px;">
+                    <span>회신 유형</span>
+                    <select name="reply_category">
+                      <option value="">미분류</option>
+                      {% for c in reply_categories %}
+                        <option value="{{ c }}" {{ 'selected' if n.reply_category == c }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label style="flex:none; width:140px;">
+                    <span>처리상태</span>
+                    <select name="process_status">
+                      {% for s in process_statuses %}
+                        <option value="{{ s }}" {{ 'selected' if n.process_status == s }}>{{ s }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <button class="btn btn-sm btn-primary" type="submit">저장</button>
+                </form>
+              </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty-state">아직 발송 처리된 안내메일이 없습니다.</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if event %}
+<script>
+const EVENT_ID = {{ event.id }};
+
+function toggleReply(id) {
+  const row = document.getElementById(`reply-row-${id}`);
+  if (row) row.hidden = !row.hidden;
+}
+
+async function resendNotification(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '재발송 중…';
+  const res = await fetch(`/api/notification/${id}/resend`, { method: 'POST' });
+  if (res.ok) {
+    location.reload();
+  } else {
+    btn.disabled = false;
+    btn.textContent = '재발송';
+    alert('재발송 대기열로 옮기지 못했습니다.');
+  }
+}
+
+function updateSummaryKpi(s) {
+  document.getElementById('nkpi-total').firstChild.textContent = s.total;
+  document.getElementById('nkpi-sent').firstChild.textContent = s.sent;
+  document.getElementById('nkpi-pending').firstChild.textContent = s.pending;
+  document.getElementById('nkpi-failed').firstChild.textContent = s.failed;
+  document.getElementById('nkpi-reply-done').firstChild.textContent = s.reply_done;
+  document.getElementById('nkpi-reply-pending').firstChild.textContent = s.reply_pending;
+  document.getElementById('summary-progress-fill').style.width = s.progress + '%';
+  document.getElementById('summary-progress-text').textContent = s.progress + '%';
+}
+
+const startBtn = document.getElementById('btn-start-send');
+if (startBtn) {
+  startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    startBtn.textContent = '발송 중…';
+    const box = document.getElementById('send-progress-box');
+    const fill = document.getElementById('send-progress-fill');
+    const text = document.getElementById('send-progress-text');
+    const log = document.getElementById('send-log');
+    box.hidden = false;
+    log.innerHTML = '';
+
+    // 서버리스 환경에서는 요청이 끝나면 프로세스가 곧 정리될 수 있어, 백그라운드로
+    // 한 번에 몰아 처리하는 대신 "한 건 처리 → 결과 반영 → 다음 한 건" 식으로
+    // 짧은 요청을 반복한다. 그래서 새로고침 없이도 진행률이 실시간으로 채워진다.
+    while (true) {
+      const res = await fetch('/api/notifications/process-next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: EVENT_ID }),
+      });
+      const data = await res.json();
+      updateSummaryKpi(data.summary);
+      fill.style.width = data.summary.progress + '%';
+      text.textContent = `${data.summary.progress}% 처리됨 (완료 ${data.summary.sent} · 실패 ${data.summary.failed} · 대기 ${data.summary.pending})`;
+
+      if (data.done) {
+        text.textContent += ' — 완료';
+        startBtn.textContent = '발송 완료';
+        setTimeout(() => location.reload(), 1200);
+        break;
+      }
+
+      const li = document.createElement('li');
+      const p = data.processed;
+      const tag = p.status === '발송 완료' ? '✅' : p.status === '발송 실패' ? '❌' : '⏭';
+      li.textContent = `${tag} ${p.name} — ${p.status}${p.fail_reason ? ' (' + p.fail_reason + ')' : ''}`;
+      log.prepend(li);
+
+      await new Promise(r => setTimeout(r, 350)); // 눈으로 진행 상황을 볼 수 있게 짧게 쉰다
+    }
+  });
+}
+
+// 다른 관리자가 동시에 처리 중일 수 있으니, 요약 카드는 5초마다도 갱신한다.
+async function refreshSummary() {
+  try {
+    const res = await fetch(`/api/dashboard?event_id=${EVENT_ID}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.notify_summary) updateSummaryKpi(data.notify_summary);
+  } catch (e) { /* 다음 주기에 재시도 */ }
+}
+setInterval(refreshSummary, 5000);
+</script>
 {% endif %}
 {% endblock %}

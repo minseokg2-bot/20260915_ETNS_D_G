@@ -218,3 +218,28 @@ table.data td.name-cell { font-weight: 600; white-space: normal; }
   .content { padding: 16px; }
   .emp-status { grid-template-columns: 1fr; }
 }
+
+/* ---------- 진행률 바 (이메일 발송 진행률 등) ---------- */
+.progress-bar {
+  width: 100%;
+  height: 10px;
+  background: #eef1f5;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue-600), var(--ok));
+  border-radius: 999px;
+  transition: width .35s ease;
+}
+
+/* ---------- 회신 폼 (조직원 대시보드) ---------- */
+.reply-form { display: grid; gap: 8px; margin-top: 10px; }
+.reply-form select, .reply-form textarea {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13.5px; font-family: inherit;
+}
+.reply-done-box {
+  background: #f8f9fb; border-radius: 6px; padding: 12px 14px; margin-top: 10px; font-size: 13px;
+}
+.reply-done-box .label { color: var(--muted); font-size: 11.5px; margin-bottom: 4px; }

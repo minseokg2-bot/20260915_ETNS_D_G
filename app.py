@@ -10,6 +10,7 @@ mailwriter가 하고, 실제 보낼지 최종 판단은 관리자가 화면에�
 
 import functools
 import os
+import random
 from datetime import date, datetime
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
@@ -166,6 +167,7 @@ def admin_dashboard():
         summary=summary,
         rows=rows[:15],
         today=date.today().isoformat(),
+        notify_summary=_notification_summary(event.id),
     )
 
 
@@ -207,6 +209,7 @@ def api_dashboard():
             "event": {"id": event.id, "name": event.name},
             "summary": summary,
             "by_destination": by_destination,
+            "notify_summary": _notification_summary(event.id),
         }
     )
 
@@ -437,27 +440,6 @@ def admin_notifications():
             else:
                 flash("발송 대상 전원이 아직 미주문 상태입니다. 그대로 발송할 수 있습니다.", "success")
 
-        elif action == "send":
-            pending = Notification.query.filter_by(
-                event_id=event.id, status=Notification.STATUS_PENDING
-            ).all()
-            sent = 0
-            excluded = 0
-            for n in pending:
-                if n.order.ordered:
-                    n.status = Notification.STATUS_EXCLUDED
-                    excluded += 1
-                    continue
-                n.status = Notification.STATUS_SENT
-                n.sent_at = datetime.now()
-                n.order.notice_status = "1차 안내 완료"
-                sent += 1
-            db.session.commit()
-            msg = f"{sent}건을 발송 완료했습니다."
-            if excluded:
-                msg += f" (발송 직전 주문을 완료한 {excluded}명은 자동 제외)"
-            flash(msg, "success")
-
         elif action == "discard":
             note_id = request.form.get("notification_id", type=int)
             n = db.session.get(Notification, note_id)
@@ -478,6 +460,22 @@ def admin_notifications():
         .order_by(Notification.id)
         .all()
     )
+    # 하단 상세 표 — 대기 중인 초안은 위쪽 카드에 이미 보이니 여기서는 제외하고,
+    # 실제로 처리(발송완료/실패/제외)된 건과 회신을 한눈에 본다.
+    # NULLS LAST는 SQLite 버전에 따라 지원 여부가 갈려서, CASE로 직접
+    # "sent_at이 없는 행을 뒤로" 보내는 방식을 쓴다 (두 백엔드 모두에서 동작 보장).
+    processed = (
+        Notification.query.filter(
+            Notification.event_id == event.id,
+            Notification.status != Notification.STATUS_PENDING,
+        )
+        .order_by(
+            db.case((Notification.sent_at.is_(None), 1), else_=0),
+            Notification.sent_at.desc(),
+            Notification.id.desc(),
+        )
+        .all()
+    )
 
     return render_template(
         "admin/notifications.html",
@@ -486,7 +484,125 @@ def admin_notifications():
         notify_candidates=notify_candidates,
         error_orders=error_orders,
         drafts=drafts,
+        processed=processed,
+        summary=_notification_summary(event.id),
+        reply_categories=Notification.REPLY_CATEGORIES,
+        process_statuses=(Notification.PROCESS_UNHANDLED, Notification.PROCESS_IN_PROGRESS, Notification.PROCESS_DONE),
     )
+
+
+def _notification_summary(event_id):
+    """발송 진행률 + 회신 현황 요약. 대시보드 KPI와 진행률 바에 그대로 쓰인다."""
+    rows = Notification.query.filter_by(event_id=event_id).all()
+    total = len(rows)
+    sent = sum(1 for r in rows if r.status == Notification.STATUS_SENT)
+    pending = sum(1 for r in rows if r.status == Notification.STATUS_PENDING)
+    failed = sum(1 for r in rows if r.status == Notification.STATUS_FAILED)
+    excluded = sum(1 for r in rows if r.status == Notification.STATUS_EXCLUDED)
+    reply_done = sum(1 for r in rows if r.status == Notification.STATUS_SENT and r.reply_content)
+    reply_pending = sent - reply_done
+    processed_count = sent + failed + excluded
+    return {
+        "total": total,
+        "sent": sent,
+        "pending": pending,
+        "failed": failed,
+        "excluded": excluded,
+        "reply_done": reply_done,
+        "reply_pending": reply_pending,
+        "progress": round(processed_count / total * 100) if total else 0,
+    }
+
+
+@app.route("/api/notifications/process-next", methods=["POST"])
+@admin_required
+def api_process_next_notification():
+    """발송 대기 중인 초안 하나를 골라 실제로 처리한다.
+
+    프런트엔드가 이 엔드포인트를 짧은 간격으로 반복 호출하면서 진행률 바를
+    채워 나간다. 서버리스 환경에서는 요청이 끝나면 프로세스가 곧 종료될 수
+    있어 백그라운드 스레드로 전체를 한 번에 처리하는 방식은 쓸 수 없다 —
+    그래서 "한 건 처리하고 결과를 바로 돌려주는" 짧은 요청을 여러 번 반복하는
+    방식을 택했다. 매 호출이 완결된 트랜잭션이라 중간에 끊겨도 데이터가
+    어중간한 상태로 남지 않는다.
+    """
+    event_id = request.json.get("event_id") if request.is_json else request.form.get("event_id", type=int)
+    event_id = int(event_id) if event_id else None
+    if not event_id:
+        return jsonify({"error": "event_id가 필요합니다."}), 400
+
+    n = (
+        Notification.query.filter_by(event_id=event_id, status=Notification.STATUS_PENDING)
+        .order_by(Notification.id)
+        .first()
+    )
+    if n is None:
+        return jsonify({"done": True, "summary": _notification_summary(event_id)})
+
+    # 발송 직전 재확인: 초안을 만든 뒤 대상자가 그 사이 주문을 끝냈으면 보내지 않는다.
+    if n.order.ordered:
+        n.status = Notification.STATUS_EXCLUDED
+        result = {"id": n.id, "name": n.recipient.name, "status": n.status}
+    else:
+        # 실제 이메일 발송 API가 없어 결과를 흉내 낸다. 90% 성공 / 10% 실패로
+        # "발송 실패 → 재발송" 흐름을 시연할 수 있게 한다.
+        if random.random() < 0.10:
+            n.status = Notification.STATUS_FAILED
+            n.fail_reason = "임시 발송 오류 (시뮬레이션)"
+        else:
+            n.status = Notification.STATUS_SENT
+            n.sent_at = datetime.now()
+            n.order.notice_status = "1차 안내 완료"
+        result = {
+            "id": n.id, "name": n.recipient.name, "status": n.status,
+            "fail_reason": n.fail_reason,
+        }
+
+    db.session.commit()
+    return jsonify({"done": False, "processed": result, "summary": _notification_summary(event_id)})
+
+
+@app.route("/api/notification/<int:notification_id>/resend", methods=["POST"])
+@admin_required
+def api_resend_notification(notification_id):
+    """발송 실패한 건을 다시 대기열에 올린다. 다음 process-next 호출에서 재처리된다."""
+    n = db.session.get(Notification, notification_id)
+    if n is None:
+        return jsonify({"error": "안내 메일을 찾을 수 없습니다."}), 404
+    if n.status != Notification.STATUS_FAILED:
+        return jsonify({"error": "발송 실패 건만 재발송할 수 있습니다."}), 400
+
+    n.status = Notification.STATUS_PENDING
+    n.fail_reason = None
+    db.session.commit()
+    return jsonify({"ok": True, "id": n.id})
+
+
+@app.route("/admin/notifications/<int:notification_id>/process", methods=["POST"])
+@admin_required
+def admin_update_notification_process(notification_id):
+    """관리자가 회신을 확인한 뒤 분류·처리상태를 갱신한다."""
+    n = db.session.get(Notification, notification_id)
+    if n is None:
+        abort(404)
+
+    process_status = request.form.get("process_status")
+    if process_status in (
+        Notification.PROCESS_UNHANDLED,
+        Notification.PROCESS_IN_PROGRESS,
+        Notification.PROCESS_DONE,
+    ):
+        n.process_status = process_status
+
+    category = request.form.get("reply_category")
+    if category in Notification.REPLY_CATEGORIES:
+        n.reply_category = category
+    elif category == "":
+        n.reply_category = None
+
+    db.session.commit()
+    flash(f"{n.recipient.name}님 회신 처리상태를 갱신했습니다.", "success")
+    return redirect(url_for("admin_notifications", event_id=n.event_id))
 
 
 # --------------------------------------------------------------------------
@@ -650,7 +766,43 @@ def employee_dashboard():
         .all()
     )
 
-    return render_template("employee/dashboard.html", cards=cards, notifications=my_notifications)
+    return render_template(
+        "employee/dashboard.html",
+        cards=cards,
+        notifications=my_notifications,
+        reply_categories=Notification.REPLY_CATEGORIES,
+    )
+
+
+@app.route("/employee/notifications/<int:notification_id>/reply", methods=["POST"])
+@login_required
+def employee_reply(notification_id):
+    """조직원이 받은 안내메일에 회신한다.
+
+    본인에게 온 메일인지를 user_id로 한 번 더 확인한다 — URL의 id만 바꿔서
+    남의 메일에 회신한 것처럼 꾸미는 걸 막기 위해서다.
+    """
+    n = Notification.query.filter_by(
+        id=notification_id, user_id=current_user.id, status=Notification.STATUS_SENT
+    ).first()
+    if n is None:
+        flash("해당 안내메일을 찾을 수 없습니다.", "error")
+        return redirect(url_for("employee_dashboard"))
+
+    content = request.form.get("content", "").strip()
+    category = request.form.get("category", "")
+    if not content:
+        flash("회신 내용을 입력해 주세요.", "error")
+        return redirect(url_for("employee_dashboard"))
+
+    n.reply_content = content
+    n.reply_category = category if category in Notification.REPLY_CATEGORIES else None
+    n.reply_at = datetime.now()
+    n.process_status = Notification.PROCESS_UNHANDLED
+    db.session.commit()
+
+    flash("회신을 보냈습니다.", "success")
+    return redirect(url_for("employee_dashboard"))
 
 
 # --------------------------------------------------------------------------

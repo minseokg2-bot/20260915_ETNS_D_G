@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}발송 이력 · 배송운영 관리{% endblock %}
+{% block title %}발송 이력 · 오더체크{% endblock %}
 {% block page_title %}발송 이력{% endblock %}
 
 {% block content %}
@@ -9,7 +9,8 @@
     <select id="f-status">
       <option value="">전체 상태</option>
       <option value="발송 완료">발송 완료</option>
-      <option value="발송 예정">발송 예정</option>
+      <option value="발송 대기">발송 대기</option>
+      <option value="발송 실패">발송 실패</option>
       <option value="발송 제외">발송 제외</option>
     </select>
     <input type="search" id="f-q" placeholder="이름 검색">
@@ -18,9 +19,9 @@
 
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>이름</th><th>부서</th><th>행사</th><th>단계</th><th>제목</th><th>상태</th><th>발송일시</th></tr></thead>
+      <thead><tr><th>이름</th><th>부서</th><th>행사</th><th>단계</th><th>제목</th><th>발송상태</th><th>발송일시</th><th>회신상태</th><th>처리상태</th></tr></thead>
       <tbody id="history-body">
-        <tr><td colspan="7" class="empty-state">불러오는 중…</td></tr>
+        <tr><td colspan="9" class="empty-state">불러오는 중…</td></tr>
       </tbody>
     </table>
   </div>
@@ -33,7 +34,18 @@ function esc(s) { return (s ?? '').toString().replace(/[&<>]/g, c => ({'&':'&amp
 
 function statusBadge(s) {
   if (s === '발송 완료') return `<span class="badge badge-ok">${s}</span>`;
-  if (s === '발송 예정') return `<span class="badge badge-warn">${s}</span>`;
+  if (s === '발송 대기') return `<span class="badge badge-warn">${s}</span>`;
+  if (s === '발송 실패') return `<span class="badge badge-danger">${s}</span>`;
+  return `<span class="badge badge-muted">${s}</span>`;
+}
+
+function replyBadge(s) {
+  return s === '회신 완료' ? `<span class="badge badge-navy">${s}</span>` : `<span class="badge badge-muted">${s}</span>`;
+}
+
+function processBadge(s) {
+  if (s === '처리 완료') return `<span class="badge badge-ok">${s}</span>`;
+  if (s === '처리 중') return `<span class="badge badge-warn">${s}</span>`;
   return `<span class="badge badge-muted">${s}</span>`;
 }
 
@@ -61,8 +73,10 @@ async function loadHistory() {
       <td>${esc(r.subject)}</td>
       <td>${statusBadge(r.status)}</td>
       <td>${r.sent_at || '-'}</td>
+      <td>${r.status === '발송 완료' ? replyBadge(r.reply_status) : '-'}</td>
+      <td>${r.status === '발송 완료' ? processBadge(r.process_status) : '-'}</td>
     </tr>
-  `).join('') : `<tr><td colspan="7" class="empty-state">조건에 맞는 이력이 없습니다.</td></tr>`;
+  `).join('') : `<tr><td colspan="9" class="empty-state">조건에 맞는 이력이 없습니다.</td></tr>`;
 }
 
 ['f-event', 'f-status'].forEach(id => document.getElementById(id).addEventListener('change', loadHistory));

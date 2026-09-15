@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}이트너스몰 배송운영 관리{% endblock %}</title>
+  <title>{% block title %}오더체크{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head %}{% endblock %}
 </head>
@@ -11,8 +11,8 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        이트너스몰<br>배송운영 관리
-        <small>{{ current_user.name }}{% if current_user.is_admin %} · 관리자{% endif %}</small>
+        오더체크
+        <small>이트너스몰 배송운영 · {{ current_user.name }}{% if current_user.is_admin %} · 관리자{% endif %}</small>
       </div>
 
       <nav>

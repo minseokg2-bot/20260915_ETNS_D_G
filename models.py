@@ -175,7 +175,14 @@ class EmployeeOrder(db.Model):
         p = self.priority(today)
         return p in ("즉시 확인", "우선 안내")
 
+    def latest_notification(self):
+        """이 주문에 대해 가장 최근에 만들어진 안내메일 한 건 (없으면 None)."""
+        if not self.notifications:
+            return None
+        return max(self.notifications, key=lambda n: n.id)
+
     def to_dict(self, today=None):
+        latest = self.latest_notification()
         return {
             "id": self.id,
             "event_id": self.event_id,
@@ -194,17 +201,43 @@ class EmployeeOrder(db.Model):
             "email": self.email,
             "phone": self.phone,
             "errors": self.validation_errors(),
+            "send_status": latest.status if latest else None,
+            "reply_status": latest.reply_status if latest else None,
+            "process_status": latest.process_status if latest else None,
         }
 
 
 class Notification(db.Model):
-    """안내 메일 한 통. 초안(발송 예정) 상태로 만들어졌다가 발송 또는 제외로 확정된다."""
+    """안내 메일 한 통.
+
+    초안(발송 대기)으로 만들어져 → 발송 처리 중 상태를 거쳐 → 발송 완료 또는
+    발송 실패로 확정된다. 그 사이 대상자가 스스로 주문을 끝내면 발송 제외로
+    빠진다 (이 앱의 핵심 안전장치 — 발송 직전 재확인).
+
+    발송 완료된 건에는 조직원의 회신이 나중에 달릴 수 있다. 회신 유형
+    (reply_category)은 지금은 조직원이 회신할 때 직접 고르지만, 나중에
+    AI가 회신 본문을 읽고 자동 분류하도록 바꿀 걸 염두에 두고 별도 컬럼으로
+    구조화해 저장한다.
+    """
 
     __tablename__ = "notifications"
 
-    STATUS_PENDING = "발송 예정"
+    # 발송 상태
+    STATUS_PENDING = "발송 대기"
+    STATUS_SENDING = "발송 중"
     STATUS_SENT = "발송 완료"
+    STATUS_FAILED = "발송 실패"
     STATUS_EXCLUDED = "발송 제외"
+
+    # 처리 상태 (관리자가 회신을 확인하고 마무리했는지)
+    PROCESS_UNHANDLED = "미처리"
+    PROCESS_IN_PROGRESS = "처리 중"
+    PROCESS_DONE = "처리 완료"
+
+    REPLY_CATEGORIES = (
+        "주문 예정", "주문 불필요", "주문 취소",
+        "배송 관련 문의", "배송지 변경 요청", "기타 문의",
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False)
@@ -215,20 +248,39 @@ class Notification(db.Model):
     subject = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(20), nullable=False, default=STATUS_PENDING)
+    fail_reason = db.Column(db.String(200))
     sent_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
+    reply_content = db.Column(db.Text)
+    reply_category = db.Column(db.String(30))
+    reply_at = db.Column(db.DateTime)
+    process_status = db.Column(db.String(20), nullable=False, default=PROCESS_UNHANDLED)
+
     recipient = db.relationship("User", foreign_keys=[user_id])
+
+    @property
+    def reply_status(self):
+        """회신 대기 / 회신 완료. 원본 컬럼이 아니라 reply_content 존재 여부로 판단한다."""
+        return "회신 완료" if self.reply_content else "회신 대기"
 
     def to_dict(self):
         return {
             "id": self.id,
             "event_id": self.event_id,
+            "user_id": self.user_id,
+            "order_id": self.order_id,
             "name": self.recipient.name,
             "department": self.recipient.department,
             "notification_type": self.notification_type,
             "subject": self.subject,
             "status": self.status,
+            "fail_reason": self.fail_reason,
             "sent_at": self.sent_at.strftime("%Y-%m-%d %H:%M") if self.sent_at else None,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+            "reply_status": self.reply_status,
+            "reply_content": self.reply_content,
+            "reply_category": self.reply_category,
+            "reply_at": self.reply_at.strftime("%Y-%m-%d %H:%M") if self.reply_at else None,
+            "process_status": self.process_status,
         }

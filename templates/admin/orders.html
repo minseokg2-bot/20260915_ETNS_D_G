@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}주문 현황 · 배송운영 관리{% endblock %}
+{% block title %}주문 현황 · 오더체크{% endblock %}
 {% block page_title %}주문 현황{% endblock %}
 
 {% block content %}
@@ -45,11 +45,11 @@
         <thead>
           <tr>
             <th>이름</th><th>부서</th><th>주재지</th><th>수령 희망일</th><th>주문 마감일</th>
-            <th>D-day</th><th>주문 상태</th><th>안내 상태</th><th>자료</th><th></th>
+            <th>D-day</th><th>주문 상태</th><th>안내 상태</th><th>발송·회신</th><th>자료</th><th></th>
           </tr>
         </thead>
         <tbody id="orders-body">
-          <tr><td colspan="10" class="empty-state">불러오는 중…</td></tr>
+          <tr><td colspan="11" class="empty-state">불러오는 중…</td></tr>
         </tbody>
       </table>
     </div>
@@ -95,7 +95,7 @@ async function loadOrders() {
 
   const tbody = document.getElementById('orders-body');
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-state">조건에 맞는 대상자가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-state">조건에 맞는 대상자가 없습니다.</td></tr>`;
     return;
   }
 
@@ -109,6 +109,7 @@ async function loadOrders() {
       <td>${r.dday === null ? '-' : ('D' + (r.dday >= 0 ? '+' : '') + r.dday)}</td>
       <td>${r.ordered ? '<span class="badge badge-ok">주문완료</span>' : '<span class="badge badge-danger">미주문</span>'}</td>
       <td>${r.notice_status === '1차 안내 완료' ? '<span class="badge badge-navy">1차 안내 완료</span>' : '<span class="badge badge-muted">미안내</span>'}</td>
+      <td>${sendReplyBadges(r)}</td>
       <td>${priorityBadge(r.priority, r.errors)}</td>
       <td>
         ${r.ordered
@@ -117,6 +118,23 @@ async function loadOrders() {
       </td>
     </tr>
   `).join('');
+}
+
+function sendReplyBadges(r) {
+  if (!r.send_status) return '<span class="meta" style="color:var(--muted);">-</span>';
+  let sendBadge;
+  if (r.send_status === '발송 완료') sendBadge = `<span class="badge badge-ok">${r.send_status}</span>`;
+  else if (r.send_status === '발송 실패') sendBadge = `<span class="badge badge-danger">${r.send_status}</span>`;
+  else if (r.send_status === '발송 제외') sendBadge = `<span class="badge badge-muted">${r.send_status}</span>`;
+  else sendBadge = `<span class="badge badge-warn">${r.send_status}</span>`;
+
+  let replyBadge = '';
+  if (r.send_status === '발송 완료') {
+    replyBadge = r.reply_status === '회신 완료'
+      ? '<span class="badge badge-navy">회신 완료</span>'
+      : '<span class="badge badge-muted">회신 대기</span>';
+  }
+  return `${sendBadge} ${replyBadge}`;
 }
 
 async function toggleOrder(id, ordered) {
