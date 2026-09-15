@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}안내메일 관리 · 배송운영 관리{% endblock %}
+{% block page_title %}안내메일 관리{% endblock %}
+
+{% block content %}
+{% if not event %}
+  <div class="card"><p class="empty-state">등록된 행사가 없습니다.</p></div>
+{% else %}
+  <div class="event-header">
+    <div>
+      <h2>{{ event.name }}</h2>
+      <p class="meta">시스템이 계산 · 대상 선별을 하고, AI가 문안을 쓰고, 관리자가 최종 확인 후 발송합니다.</p>
+    </div>
+    <form class="event-select" method="get">
+      <select name="event_id" onchange="this.form.submit()">
+        {% for e in events %}
+          <option value="{{ e.id }}" {{ 'selected' if e.id == event.id }}>{{ e.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  {% if error_orders %}
+    <div class="warning-box">
+      <div class="title">⚠ 자료 확인 필요 {{ error_orders|length }}건 — 아래 대상자는 안내 발송에서 자동 제외됩니다</div>
+      <ul>
+        {% for o in error_orders %}
+          <li>{{ o.user.name }} ({{ o.user.department }}) — {{ o.validation_errors() | join(', ') }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-title">
+      1단계 — 안내 대상 선택 후 AI 안내문 생성
+      <span class="muted">체크하지 않으면 '오늘 안내 대상'(D-3 이내 미주문자)이 자동 선택됩니다</span>
+    </div>
+    <form method="post">
+      <input type="hidden" name="action" value="generate">
+      <input type="hidden" name="event_id" value="{{ event.id }}">
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th></th><th>이름</th><th>부서</th><th>주재지</th><th>주문 마감일</th><th>D-day</th><th>우선순위</th></tr>
+          </thead>
+          <tbody>
+            {% for o in notify_candidates %}
+            <tr>
+              <td><input type="checkbox" name="order_ids" value="{{ o.id }}" {{ 'checked' if o.is_notify_target() }}></td>
+              <td class="name-cell">{{ o.user.name }}</td>
+              <td>{{ o.user.department }}</td>
+              <td>{{ o.destination }}</td>
+              <td>{{ o.deadline_date.strftime('%m/%d') if o.deadline_date else '-' }}</td>
+              <td>{% if o.dday() is not none %}D{{ '+' if o.dday() >= 0 else '' }}{{ o.dday() }}{% endif %}</td>
+              <td>
+                {% set p = o.priority() %}
+                {% if p == '즉시 확인' %}<span class="badge badge-danger">{{ p }}</span>
+                {% elif p == '우선 안내' %}<span class="badge badge-warn">{{ p }}</span>
+                {% else %}<span class="badge badge-navy">{{ p }}</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-state">안내 대상이 없습니다 (모두 주문 완료 또는 자료 확인 필요).</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-primary" type="submit" {{ 'disabled' if not notify_candidates }}>AI 안내문 생성</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      2단계 — 발송 대상 확인 및 1차 안내 발송
+      <span class="muted">초안 {{ drafts|length }}건</span>
+    </div>
+
+    {% if drafts %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>이름</th><th>부서</th><th>제목</th><th>본문 미리보기</th><th></th></tr></thead>
+          <tbody>
+            {% for n in drafts %}
+            <tr>
+              <td class="name-cell">{{ n.recipient.name }}</td>
+              <td>{{ n.recipient.department }}</td>
+              <td>{{ n.subject }}</td>
+              <td style="max-width:320px; white-space:normal; font-size:12.5px; color:var(--muted);">{{ n.content[:60] }}…</td>
+              <td>
+                <form method="post" style="display:inline;">
+                  <input type="hidden" name="action" value="discard">
+                  <input type="hidden" name="event_id" value="{{ event.id }}">
+                  <input type="hidden" name="notification_id" value="{{ n.id }}">
+                  <button class="btn btn-sm btn-ghost" type="submit" title="이 초안만 삭제">제외</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:14px; display:flex; gap:10px;">
+        <form method="post">
+          <input type="hidden" name="action" value="recheck">
+          <input type="hidden" name="event_id" value="{{ event.id }}">
+          <button class="btn" type="submit">🔄 발송 대상 확인 (그 사이 주문완료자 제외)</button>
+        </form>
+        <form method="post" onsubmit="return confirm('{{ drafts|length }}건의 안내메일을 발송하시겠습니까?');">
+          <input type="hidden" name="action" value="send">
+          <input type="hidden" name="event_id" value="{{ event.id }}">
+          <button class="btn btn-primary" type="submit">1차 안내 발송</button>
+        </form>
+      </div>
+
+      <details style="margin-top:16px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--muted);">전체 본문 미리보기</summary>
+        {% for n in drafts %}
+          <p style="margin:14px 0 4px; font-weight:600; font-size:13px;">{{ n.recipient.name }} — {{ n.subject }}</p>
+          <div class="mail-preview">{{ n.content }}</div>
+        {% endfor %}
+      </details>
+    {% else %}
+      <p class="empty-state">아직 생성된 초안이 없습니다. 위에서 대상을 선택하고 안내문을 생성해 주세요.</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

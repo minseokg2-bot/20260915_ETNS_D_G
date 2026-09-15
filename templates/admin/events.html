@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}행사 관리 · 배송운영 관리{% endblock %}
+{% block page_title %}행사 관리{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">행사 등록</div>
+  <form class="form-grid" method="post">
+    <input type="hidden" name="action" value="create_event">
+    <div class="form-row">
+      <label><span>행사명</span><input type="text" name="name" placeholder="예) 2026 추석 선물" required></label>
+      <label><span>상태</span>
+        <select name="status">
+          <option value="진행 예정">진행 예정</option>
+          <option value="진행 중" selected>진행 중</option>
+          <option value="종료">종료</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-row">
+      <label><span>주문 시작일</span><input type="date" name="order_start_date" required></label>
+      <label><span>주문 마감일(기본)</span><input type="date" name="order_end_date" required></label>
+      <label><span>수령 희망일(기본)</span><input type="date" name="delivery_date" required></label>
+    </div>
+    <div>
+      <button class="btn btn-primary" type="submit">행사 등록</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">등록된 행사</div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>행사명</th><th>주문 기간</th><th>수령 희망일</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="name-cell">{{ e.name }}</td>
+          <td>{{ e.order_start_date.strftime('%Y-%m-%d') }} ~ {{ e.order_end_date.strftime('%Y-%m-%d') }}</td>
+          <td>{{ e.delivery_date.strftime('%Y-%m-%d') }}</td>
+          <td>
+            {% if e.status == '진행 중' %}<span class="badge badge-ok">{{ e.status }}</span>
+            {% elif e.status == '진행 예정' %}<span class="badge badge-navy">{{ e.status }}</span>
+            {% else %}<span class="badge badge-muted">{{ e.status }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-state">등록된 행사가 없습니다.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">주재지별 배송 소요일 설정</div>
+  <p class="meta" style="margin:-6px 0 14px; color:var(--muted); font-size:13px;">
+    개인별 주문 마감일 = 수령 희망일 − 배송 소요일. 여기서 정한 값이 새 주문에 적용됩니다.
+  </p>
+  <!--
+    <tr> 안에는 <form>이 직접 들어갈 수 없다(HTML5는 표 안에 폼 요소를 두는 것을
+    허용하지 않고, 브라우저가 파서 단계에서 위치를 바꿔 버린다). 그래서 폼은 표
+    바깥에 두고, 각 입력·버튼은 form="아이디" 속성으로 해당 폼을 가리킨다.
+  -->
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>주재지</th><th>배송 소요일</th><th></th></tr></thead>
+      <tbody>
+        {% for lt in lead_times %}
+        <tr>
+          <td class="name-cell">{{ lt.name }}</td>
+          <td><input type="number" form="lt-form-{{ lt.id }}" name="lead_time_days" value="{{ lt.lead_time_days }}" min="0" max="60" style="width:80px; padding:5px 8px; border:1px solid var(--line); border-radius:6px;"> 일</td>
+          <td><button class="btn btn-sm" form="lt-form-{{ lt.id }}" type="submit">저장</button></td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <td><input type="text" form="lt-form-new" name="name" placeholder="새 주재지" style="width:120px; padding:5px 8px; border:1px solid var(--line); border-radius:6px;"></td>
+          <td><input type="number" form="lt-form-new" name="lead_time_days" min="0" max="60" style="width:80px; padding:5px 8px; border:1px solid var(--line); border-radius:6px;"> 일</td>
+          <td><button class="btn btn-sm" form="lt-form-new" type="submit">추가</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% for lt in lead_times %}
+  <form id="lt-form-{{ lt.id }}" method="post" hidden>
+    <input type="hidden" name="action" value="update_lead_time">
+    <input type="hidden" name="name" value="{{ lt.name }}">
+  </form>
+  {% endfor %}
+  <form id="lt-form-new" method="post" hidden>
+    <input type="hidden" name="action" value="update_lead_time">
+  </form>
+</div>
+{% endblock %}

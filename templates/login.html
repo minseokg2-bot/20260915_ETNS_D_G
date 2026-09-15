@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로그인 · 이트너스몰 배송운영 관리</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <h1>이트너스몰 배송운영 관리</h1>
+      <p class="sub">행사별 미주문자 확인과 1차 안내를 관리하는 사내 도구입니다.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="flashes">
+            {% for category, message in messages %}
+              <li class="flash flash-{{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+
+      <form class="form-grid" action="{{ url_for('login') }}" method="post">
+        <label>
+          <span>아이디</span>
+          <input type="text" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+        </label>
+        <label>
+          <span>비밀번호</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary" type="submit" style="justify-content:center; padding:10px;">로그인</button>
+      </form>
+
+      <div class="demo-accounts">
+        데모 계정 — 관리자 <code>admin / admin1234</code><br>
+        조직원 <code>employee01 / employee1234</code> (~employee10)
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,223 @@
+"""데이터 모델.
+
+계산이 필요한 값(주문 마감일, D-day, 안내 우선순위, 자료 오류)은 컬럼으로
+저장하지 않고 그때그때 계산한다. 저장해 두면 원본 값(수령 희망일, 배송
+소요일)이 바뀌었을 때 갱신을 깜빡해 오래된 값이 남을 수 있기 때문이다.
+"""
+
+import re
+from datetime import date, datetime, timedelta
+
+from flask_login import UserMixin
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(120))
+    department = db.Column(db.String(50))
+    position = db.Column(db.String(50))
+    role = db.Column(db.String(20), nullable=False, default="employee")  # admin | employee
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    orders = db.relationship("EmployeeOrder", backref="user", lazy=True)
+
+    @property
+    def is_admin(self):
+        return self.role == "admin"
+
+
+class DestinationLeadTime(db.Model):
+    """주재지별 배송 소요일. 관리자가 사전에 설정해 두는 값."""
+
+    __tablename__ = "destination_lead_times"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True, nullable=False)
+    lead_time_days = db.Column(db.Integer, nullable=False)
+
+
+class Event(db.Model):
+    __tablename__ = "events"
+
+    STATUS_UPCOMING = "진행 예정"
+    STATUS_ONGOING = "진행 중"
+    STATUS_CLOSED = "종료"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    order_start_date = db.Column(db.Date, nullable=False)
+    order_end_date = db.Column(db.Date, nullable=False)
+    delivery_date = db.Column(db.Date, nullable=False)  # 기본 수령 희망일
+    status = db.Column(db.String(20), nullable=False, default=STATUS_ONGOING)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    orders = db.relationship(
+        "EmployeeOrder", backref="event", lazy=True, cascade="all, delete-orphan"
+    )
+    notifications = db.relationship(
+        "Notification", backref="event", lazy=True, cascade="all, delete-orphan"
+    )
+
+
+class EmployeeOrder(db.Model):
+    """행사 하나에 대한 조직원 한 명의 주문 상태.
+
+    같은 조직원이라도 행사마다 별도의 행을 가지므로, 과거 행사의 주문 이력이
+    새 행사에 영향을 주지 않는다.
+    """
+
+    __tablename__ = "employee_orders"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+    destination = db.Column(db.String(50))  # 주재지
+    delivery_days = db.Column(db.Integer)  # 배송 소요일 (스냅샷)
+    desired_delivery_date = db.Column(db.Date)  # 수령 희망일
+    deadline_date = db.Column(db.Date)  # 개인별 주문 마감일 (계산해서 저장)
+
+    ordered = db.Column(db.Boolean, nullable=False, default=False)
+    ordered_at = db.Column(db.DateTime)
+
+    notice_status = db.Column(db.String(20), nullable=False, default="미안내")  # 미안내 | 1차 안내 완료
+
+    phone = db.Column(db.String(30))
+    email = db.Column(db.String(120))
+
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    notifications = db.relationship("Notification", backref="order", lazy=True)
+
+    __table_args__ = (db.UniqueConstraint("event_id", "user_id", name="uq_event_user"),)
+
+    # ----------------------------------------------------------------
+    # 계산 값
+    # ----------------------------------------------------------------
+    def recalc_deadline(self):
+        """수령 희망일과 배송 소요일로 마감일을 다시 계산한다.
+
+        둘 중 하나라도 없으면 계산할 수 없으므로 None으로 둔다 — 이 상태는
+        validation_errors()에서 "누락"으로 잡혀 안내 대상에서 자동 제외된다.
+        """
+        if self.desired_delivery_date and self.delivery_days is not None:
+            self.deadline_date = self.desired_delivery_date - timedelta(days=self.delivery_days)
+        else:
+            self.deadline_date = None
+
+    def dday(self, today=None):
+        """오늘 기준 D-day. 마감일을 모르면 None."""
+        if self.deadline_date is None:
+            return None
+        today = today or date.today()
+        return (self.deadline_date - today).days
+
+    def priority(self, today=None):
+        """안내 우선순위. D-day 규칙 그대로:
+        D-0 이하 → 즉시 확인, D-1~3 → 우선 안내, D-4~7 → 일반 안내, D-8 이상 → 안내 예정
+        """
+        d = self.dday(today)
+        if d is None:
+            return None
+        if d <= 0:
+            return "즉시 확인"
+        if d <= 3:
+            return "우선 안내"
+        if d <= 7:
+            return "일반 안내"
+        return "안내 예정"
+
+    def validation_errors(self):
+        """발송 전에 걸러야 할 자료 문제. 하나라도 있으면 안내 대상에서 제외한다."""
+        errors = []
+        if not self.email:
+            errors.append("이메일 누락")
+        elif not EMAIL_RE.match(self.email):
+            errors.append("이메일 형식 오류")
+        if not self.phone:
+            errors.append("연락처 누락")
+        if not self.destination:
+            errors.append("주재지 누락")
+        if not self.desired_delivery_date:
+            errors.append("수령 희망일 누락")
+        if self.delivery_days is None:
+            errors.append("배송 소요일 누락")
+        return errors
+
+    def is_notify_target(self, today=None):
+        """오늘 안내 대상: 미주문 + 자료 문제 없음 + D-day가 급함(<=3)."""
+        if self.ordered:
+            return False
+        if self.validation_errors():
+            return False
+        p = self.priority(today)
+        return p in ("즉시 확인", "우선 안내")
+
+    def to_dict(self, today=None):
+        return {
+            "id": self.id,
+            "event_id": self.event_id,
+            "user_id": self.user_id,
+            "name": self.user.name,
+            "department": self.user.department,
+            "destination": self.destination,
+            "desired_delivery_date": self.desired_delivery_date.isoformat()
+            if self.desired_delivery_date
+            else None,
+            "deadline_date": self.deadline_date.isoformat() if self.deadline_date else None,
+            "dday": self.dday(today),
+            "priority": self.priority(today),
+            "ordered": self.ordered,
+            "notice_status": self.notice_status,
+            "email": self.email,
+            "phone": self.phone,
+            "errors": self.validation_errors(),
+        }
+
+
+class Notification(db.Model):
+    """안내 메일 한 통. 초안(발송 예정) 상태로 만들어졌다가 발송 또는 제외로 확정된다."""
+
+    __tablename__ = "notifications"
+
+    STATUS_PENDING = "발송 예정"
+    STATUS_SENT = "발송 완료"
+    STATUS_EXCLUDED = "발송 제외"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey("employee_orders.id"), nullable=False)
+
+    notification_type = db.Column(db.String(20), nullable=False, default="1차 안내")
+    subject = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_PENDING)
+    sent_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    recipient = db.relationship("User", foreign_keys=[user_id])
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "event_id": self.event_id,
+            "name": self.recipient.name,
+            "department": self.recipient.department,
+            "notification_type": self.notification_type,
+            "subject": self.subject,
+            "status": self.status,
+            "sent_at": self.sent_at.strftime("%Y-%m-%d %H:%M") if self.sent_at else None,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M"),
+        }

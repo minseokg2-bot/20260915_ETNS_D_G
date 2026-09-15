@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}발송 이력 · 배송운영 관리{% endblock %}
+{% block page_title %}발송 이력{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="filter-bar">
+    <select id="f-event"><option value="">전체 행사</option>{% for e in events %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select>
+    <select id="f-status">
+      <option value="">전체 상태</option>
+      <option value="발송 완료">발송 완료</option>
+      <option value="발송 예정">발송 예정</option>
+      <option value="발송 제외">발송 제외</option>
+    </select>
+    <input type="search" id="f-q" placeholder="이름 검색">
+    <span id="row-count" class="meta" style="color:var(--muted); font-size:12.5px;"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>이름</th><th>부서</th><th>행사</th><th>단계</th><th>제목</th><th>상태</th><th>발송일시</th></tr></thead>
+      <tbody id="history-body">
+        <tr><td colspan="7" class="empty-state">불러오는 중…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s) { return (s ?? '').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function statusBadge(s) {
+  if (s === '발송 완료') return `<span class="badge badge-ok">${s}</span>`;
+  if (s === '발송 예정') return `<span class="badge badge-warn">${s}</span>`;
+  return `<span class="badge badge-muted">${s}</span>`;
+}
+
+async function loadHistory() {
+  const params = new URLSearchParams();
+  const eventId = document.getElementById('f-event').value;
+  const status = document.getElementById('f-status').value;
+  const q = document.getElementById('f-q').value.trim();
+  if (eventId) params.set('event_id', eventId);
+  if (status) params.set('status', status);
+  if (q) params.set('q', q);
+
+  const res = await fetch(`/api/notifications?${params}`);
+  const data = await res.json();
+  const rows = data.rows || [];
+  document.getElementById('row-count').textContent = `${rows.length}건`;
+
+  const tbody = document.getElementById('history-body');
+  tbody.innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td class="name-cell">${esc(r.name)}</td>
+      <td>${esc(r.department)}</td>
+      <td>${esc(r.event_name)}</td>
+      <td>${esc(r.notification_type)}</td>
+      <td>${esc(r.subject)}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td>${r.sent_at || '-'}</td>
+    </tr>
+  `).join('') : `<tr><td colspan="7" class="empty-state">조건에 맞는 이력이 없습니다.</td></tr>`;
+}
+
+['f-event', 'f-status'].forEach(id => document.getElementById(id).addEventListener('change', loadHistory));
+document.getElementById('f-q').addEventListener('input', loadHistory);
+loadHistory();
+</script>
+{% endblock %}

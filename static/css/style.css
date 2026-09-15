@@ -1,0 +1,220 @@
+/* 이트너스몰 배송운영 관리 — 사내 업무 시스템 톤.
+   화이트 바탕 + 네이비 포인트. 장식보다 표와 숫자가 잘 읽히는 것을 우선한다. */
+
+:root {
+  --navy-900: #0f2a4a;
+  --navy-800: #16365c;
+  --navy-700: #1f4a7a;
+  --blue-600: #2563eb;
+  --blue-50: #eef4ff;
+  --ink: #1a2433;
+  --muted: #6b7686;
+  --line: #e3e7ee;
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --ok: #1a7f5a;
+  --ok-bg: #e6f7ef;
+  --warn: #b7791f;
+  --warn-bg: #fdf3df;
+  --danger: #c0392b;
+  --danger-bg: #fbe9e7;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Pretendard", "Malgun Gothic", "맑은 고딕", -apple-system, system-ui, sans-serif;
+  font-size: 14px;
+}
+
+a { color: var(--blue-600); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- 레이아웃 ---------- */
+.app-shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 232px;
+  flex: none;
+  background: var(--navy-900);
+  color: #dbe6f5;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0;
+}
+
+.sidebar .brand {
+  padding: 0 20px 18px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.sidebar .brand small { display: block; font-weight: 400; font-size: 11.5px; color: #9db3cc; margin-top: 3px; }
+
+.sidebar nav { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; }
+
+.sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  color: #c3d3e8;
+  font-size: 13.5px;
+  text-decoration: none;
+}
+.sidebar nav a:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.sidebar nav a.active { background: var(--blue-600); color: #fff; font-weight: 600; }
+
+.sidebar .logout-area { padding: 10px 20px 4px; border-top: 1px solid rgba(255, 255, 255, 0.12); margin-top: 6px; }
+.sidebar .logout-area button {
+  width: 100%; padding: 8px; background: transparent; border: 1px solid rgba(255,255,255,.25);
+  color: #dbe6f5; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.sidebar .logout-area button:hover { background: rgba(255,255,255,.08); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  height: 56px;
+  flex: none;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+.topbar h1 { font-size: 16px; margin: 0; font-weight: 700; }
+.topbar .user { font-size: 13px; color: var(--muted); }
+.topbar .user strong { color: var(--ink); }
+
+.content { padding: 22px 24px 60px; flex: 1; }
+.content-narrow { max-width: 480px; }
+
+/* ---------- 플래시 ---------- */
+.flashes { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+.flash { padding: 10px 14px; border-radius: var(--radius); font-size: 13.5px; }
+.flash-success { background: var(--ok-bg); color: var(--ok); }
+.flash-error { background: var(--danger-bg); color: var(--danger); }
+
+/* ---------- 카드 ---------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+.card + .card { margin-top: 16px; }
+.card-title { margin: 0 0 14px; font-size: 14.5px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; }
+.card-title .muted { font-weight: 400; font-size: 12.5px; color: var(--muted); }
+
+/* ---------- KPI ---------- */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpi {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--kpi-color, var(--blue-600));
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.kpi .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.kpi .value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.kpi .value .unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+
+.event-header {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  margin-bottom: 16px;
+}
+.event-header h2 { margin: 0; font-size: 18px; }
+.event-header .meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.event-select select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+
+/* ---------- 표 ---------- */
+.table-wrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.data th, table.data td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+table.data thead th {
+  font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase; color: var(--muted);
+  background: #f8f9fb; position: sticky; top: 0;
+}
+table.data tbody tr:hover { background: var(--blue-50); }
+table.data td.name-cell { font-weight: 600; white-space: normal; }
+
+/* ---------- 배지 ---------- */
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.badge-ok { background: var(--ok-bg); color: var(--ok); }
+.badge-warn { background: var(--warn-bg); color: var(--warn); }
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-muted { background: #eef1f5; color: var(--muted); }
+.badge-navy { background: var(--blue-50); color: var(--navy-700); }
+
+/* ---------- 폼 / 버튼 ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); font-size: 13.5px; cursor: pointer;
+}
+.btn:hover { background: #f2f4f7; text-decoration: none; }
+.btn-primary { background: var(--blue-600); border-color: var(--blue-600); color: #fff; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-ghost { background: transparent; }
+.btn-sm { padding: 5px 10px; font-size: 12.5px; }
+.btn-danger { color: var(--danger); border-color: #f2c9c2; }
+
+.form-grid { display: grid; gap: 12px; }
+.form-grid label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.form-grid input, .form-grid select, .form-grid textarea {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13.5px; font-family: inherit;
+}
+.form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.form-row > * { flex: 1; min-width: 160px; }
+
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+.filter-bar select, .filter-bar input[type="search"] { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+
+/* ---------- 로그인 ---------- */
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--navy-900); }
+.login-card { width: 360px; background: var(--card); border-radius: 10px; padding: 32px 28px; }
+.login-card h1 { font-size: 18px; margin: 0 0 4px; }
+.login-card p.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.login-card .demo-accounts { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+/* ---------- 경고 영역 ---------- */
+.warning-box {
+  background: var(--warn-bg); border: 1px solid #f0dca8; border-radius: var(--radius);
+  padding: 12px 16px; font-size: 13px; color: #7a5a10; margin-bottom: 16px;
+}
+.warning-box .title { font-weight: 700; margin-bottom: 6px; }
+.warning-box ul { margin: 0; padding-left: 18px; }
+
+/* ---------- 안내메일 미리보기 ---------- */
+.mail-preview {
+  background: #fafbfc; border: 1px solid var(--line); border-radius: 6px;
+  padding: 14px; font-size: 13px; white-space: pre-wrap; line-height: 1.7; max-height: 220px; overflow-y: auto;
+}
+
+/* ---------- 조직원 대시보드 ---------- */
+.emp-card { max-width: 480px; }
+.emp-status { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+.emp-status .box { background: #f8f9fb; border-radius: 6px; padding: 12px 14px; }
+.emp-status .box .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.emp-status .box .value { font-size: 17px; font-weight: 700; }
+
+.empty-state { padding: 30px; text-align: center; color: var(--muted); }
+
+/* ---------- 반응형 ---------- */
+@media (max-width: 860px) {
+  .sidebar { width: 76px; }
+  .sidebar .brand, .sidebar nav a span.label { display: none; }
+  .sidebar nav a { justify-content: center; }
+  .content { padding: 16px; }
+  .emp-status { grid-template-columns: 1fr; }
+}

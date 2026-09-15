@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}내 주문 현황 · 배송운영 관리{% endblock %}
+{% block page_title %}내 주문 현황{% endblock %}
+
+{% block content %}
+<p style="margin-top:-8px; color:var(--muted);">안녕하세요, {{ current_user.name }}님</p>
+
+{% for c in cards %}
+  <div class="card emp-card">
+    <div class="card-title">
+      {{ c.event.name }}
+      {% if c.order.ordered %}<span class="badge badge-ok">주문 완료</span>{% else %}<span class="badge badge-danger">미주문</span>{% endif %}
+    </div>
+
+    <div class="emp-status">
+      <div class="box"><div class="label">주재지</div><div class="value">{{ c.order.destination or '-' }}</div></div>
+      <div class="box"><div class="label">수령 희망일</div><div class="value">{{ c.order.desired_delivery_date.strftime('%Y-%m-%d') if c.order.desired_delivery_date else '-' }}</div></div>
+      <div class="box"><div class="label">주문 마감일</div><div class="value">{{ c.order.deadline_date.strftime('%Y-%m-%d') if c.order.deadline_date else '-' }}</div></div>
+      <div class="box">
+        <div class="label">D-day</div>
+        <div class="value">
+          {% if c.dday is not none %}
+            D{{ '+' if c.dday >= 0 else '' }}{{ c.dday }}
+          {% else %}-{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if not c.order.ordered and c.order.validation_errors() %}
+      <div class="warning-box" style="margin:0;">
+        <div class="title">⚠ 등록된 정보를 확인해 주세요</div>
+        <ul>{% for err in c.order.validation_errors() %}<li>{{ err }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card"><p class="empty-state">참여 중인 행사가 없습니다.</p></div>
+{% endfor %}
+
+{% if notifications %}
+<div class="card emp-card">
+  <div class="card-title">받은 안내메일</div>
+  {% for n in notifications %}
+    <p style="margin:14px 0 4px; font-weight:600; font-size:13px;">{{ n.subject }} <span class="meta" style="font-weight:400; color:var(--muted);">({{ n.sent_at.strftime('%Y-%m-%d') }})</span></p>
+    <div class="mail-preview">{{ n.content }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

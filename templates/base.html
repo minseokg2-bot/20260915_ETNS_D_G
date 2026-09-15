@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}이트너스몰 배송운영 관리{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        이트너스몰<br>배송운영 관리
+        <small>{{ current_user.name }}{% if current_user.is_admin %} · 관리자{% endif %}</small>
+      </div>
+
+      <nav>
+        {% if current_user.is_admin %}
+          <a href="{{ url_for('admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'admin_dashboard' }}">📊 <span class="label">대시보드</span></a>
+          <a href="{{ url_for('admin_events') }}" class="{{ 'active' if request.endpoint == 'admin_events' }}">🗂 <span class="label">행사 관리</span></a>
+          <a href="{{ url_for('admin_orders') }}" class="{{ 'active' if request.endpoint == 'admin_orders' }}">📦 <span class="label">주문 현황</span></a>
+          <a href="{{ url_for('admin_unordered') }}" class="{{ 'active' if request.endpoint == 'admin_unordered' }}">⏰ <span class="label">미주문자 관리</span></a>
+          <a href="{{ url_for('admin_notifications') }}" class="{{ 'active' if request.endpoint == 'admin_notifications' }}">✉️ <span class="label">안내메일 관리</span></a>
+          <a href="{{ url_for('admin_history') }}" class="{{ 'active' if request.endpoint == 'admin_history' }}">🕘 <span class="label">발송 이력</span></a>
+          <a href="{{ url_for('admin_employees') }}" class="{{ 'active' if request.endpoint == 'admin_employees' }}">👥 <span class="label">조직원 관리</span></a>
+        {% else %}
+          <a href="{{ url_for('employee_dashboard') }}" class="{{ 'active' if request.endpoint == 'employee_dashboard' }}">📋 <span class="label">내 주문 현황</span></a>
+        {% endif %}
+      </nav>
+
+      <div class="logout-area">
+        <form action="{{ url_for('logout') }}" method="post">
+          <button type="submit">로그아웃</button>
+        </form>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <h1>{% block page_title %}{% endblock %}</h1>
+        <div class="user"><strong>{{ current_user.name }}</strong>{% if current_user.department %} · {{ current_user.department }}{% endif %}</div>
+      </header>
+
+      <div class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+              {% for category, message in messages %}
+                <li class="flash flash-{{ category }}">{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{{ '미주문자 관리' if mode == 'unordered' else '주문 현황' }} · 배송운영 관리{% endblock %}
+{% block page_title %}{{ '미주문자 관리' if mode == 'unordered' else '주문 현황' }}{% endblock %}
+
+{% block content %}
+{% if not event %}
+  <div class="card"><p class="empty-state">등록된 행사가 없습니다.</p></div>
+{% else %}
+  <div class="event-header">
+    <div>
+      <h2>{{ event.name }}</h2>
+      <p class="meta">{{ '미주문자만 표시합니다' if mode == 'unordered' else '전체 대상자를 표시합니다' }}</p>
+    </div>
+    <form class="event-select" method="get">
+      <select name="event_id" onchange="this.form.submit()">
+        {% for e in events %}
+          <option value="{{ e.id }}" {{ 'selected' if e.id == event.id }}>{{ e.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="filter-bar">
+      <input type="search" id="f-q" placeholder="이름·이메일 검색">
+      <select id="f-department"><option value="">전체 부서</option>{% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select>
+      <select id="f-destination"><option value="">전체 주재지</option>{% for d in destinations %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select>
+      {% if mode != 'unordered' %}
+      <select id="f-ordered">
+        <option value="">주문 여부 전체</option>
+        <option value="true">주문완료</option>
+        <option value="false">미주문</option>
+      </select>
+      {% endif %}
+      <select id="f-priority">
+        <option value="">우선순위 전체</option>
+        <option value="즉시 확인">즉시 확인</option>
+        <option value="우선 안내">우선 안내</option>
+        <option value="일반 안내">일반 안내</option>
+        <option value="안내 예정">안내 예정</option>
+      </select>
+      <span id="row-count" class="meta" style="color:var(--muted); font-size:12.5px;"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>이름</th><th>부서</th><th>주재지</th><th>수령 희망일</th><th>주문 마감일</th>
+            <th>D-day</th><th>주문 상태</th><th>안내 상태</th><th>자료</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="orders-body">
+          <tr><td colspan="10" class="empty-state">불러오는 중…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if event %}
+<script>
+const EVENT_ID = {{ event.id }};
+const MODE = "{{ mode }}";
+
+function priorityBadge(p, errors) {
+  if (errors && errors.length) return `<span class="badge badge-danger">자료 확인 필요</span>`;
+  if (p === '즉시 확인') return `<span class="badge badge-danger">${p}</span>`;
+  if (p === '우선 안내') return `<span class="badge badge-warn">${p}</span>`;
+  if (p === '일반 안내') return `<span class="badge badge-navy">${p}</span>`;
+  if (p) return `<span class="badge badge-muted">${p}</span>`;
+  return '-';
+}
+
+function esc(s) { return (s ?? '').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function loadOrders() {
+  const params = new URLSearchParams({ event_id: EVENT_ID, mode: MODE });
+  const q = document.getElementById('f-q').value.trim();
+  const dept = document.getElementById('f-department').value;
+  const dest = document.getElementById('f-destination').value;
+  const priority = document.getElementById('f-priority').value;
+  const orderedSel = document.getElementById('f-ordered');
+
+  if (q) params.set('q', q);
+  if (dept) params.set('department', dept);
+  if (dest) params.set('destination', dest);
+  if (priority) params.set('priority', priority);
+  if (orderedSel && orderedSel.value) params.set('ordered', orderedSel.value);
+
+  const res = await fetch(`/api/orders?${params}`);
+  const data = await res.json();
+  const rows = data.rows || [];
+
+  document.getElementById('row-count').textContent = `${rows.length}건`;
+
+  const tbody = document.getElementById('orders-body');
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-state">조건에 맞는 대상자가 없습니다.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => `
+    <tr data-id="${r.id}">
+      <td class="name-cell">${esc(r.name)}</td>
+      <td>${esc(r.department)}</td>
+      <td>${esc(r.destination) || '-'}</td>
+      <td>${r.desired_delivery_date || '-'}</td>
+      <td>${r.deadline_date || '-'}</td>
+      <td>${r.dday === null ? '-' : ('D' + (r.dday >= 0 ? '+' : '') + r.dday)}</td>
+      <td>${r.ordered ? '<span class="badge badge-ok">주문완료</span>' : '<span class="badge badge-danger">미주문</span>'}</td>
+      <td>${r.notice_status === '1차 안내 완료' ? '<span class="badge badge-navy">1차 안내 완료</span>' : '<span class="badge badge-muted">미안내</span>'}</td>
+      <td>${priorityBadge(r.priority, r.errors)}</td>
+      <td>
+        ${r.ordered
+          ? `<button class="btn btn-sm" onclick="toggleOrder(${r.id}, false)">미주문으로</button>`
+          : `<button class="btn btn-sm btn-primary" onclick="toggleOrder(${r.id}, true)">주문완료 처리</button>`}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function toggleOrder(id, ordered) {
+  await fetch(`/api/order/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ordered })
+  });
+  loadOrders();
+}
+
+['f-q', 'f-department', 'f-destination', 'f-priority'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', loadOrders);
+});
+const orderedEl = document.getElementById('f-ordered');
+if (orderedEl) orderedEl.addEventListener('change', loadOrders);
+
+loadOrders();
+setInterval(loadOrders, 5000);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}조직원 관리 · 배송운영 관리{% endblock %}
+{% block page_title %}조직원 관리{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">조직원 목록 <span class="muted">{{ employees|length }}명</span></div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>이름</th><th>아이디</th><th>부서</th><th>직급</th><th>이메일</th></tr></thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td class="name-cell">{{ e.name }}</td>
+          <td>{{ e.username }}</td>
+          <td>{{ e.department or '-' }}</td>
+          <td>{{ e.position or '-' }}</td>
+          <td>{{ e.email or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty-state">등록된 조직원이 없습니다.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
