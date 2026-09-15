@@ -148,46 +148,6 @@
     <p class="meta" style="margin:6px 0 0; font-size:13px; color:var(--muted);">전체 발송 진행률 <strong id="summary-progress-text">{{ summary.progress }}%</strong></p>
   </div>
 
-  <div class="card">
-    <div class="card-title">조직원별 발송 상세</div>
-    {% if processed %}
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr><th>조직원</th><th>주문상태</th><th>연락 이메일</th><th>발송상태</th><th>회신여부</th><th></th></tr>
-          </thead>
-          <tbody>
-            {% for n in processed %}
-            <tr>
-              <td class="name-cell">{{ n.recipient.name }} <span class="muted" style="font-weight:400;">({{ n.recipient.department }})</span></td>
-              <td>{% if n.order.ordered %}<span class="badge badge-ok">주문완료</span>{% else %}<span class="badge badge-danger">미주문</span>{% endif %}</td>
-              <td>{{ n.order.email or '-' }}</td>
-              <td>
-                {% if n.status == '발송 완료' %}<span class="badge badge-ok">발송 완료</span>
-                {% elif n.status == '발송 실패' %}<span class="badge badge-danger">발송 실패</span>
-                {% elif n.status == '발송 제외' %}<span class="badge badge-muted">발송 제외</span>
-                {% else %}<span class="badge badge-warn">{{ n.status }}</span>{% endif %}
-                {% if n.fail_reason %}<div class="meta" style="font-size:11px; color:var(--danger);">{{ n.fail_reason }}</div>{% endif %}
-              </td>
-              <td>
-                {% if n.reply_content %}<span class="badge badge-navy">회신 완료</span> <a href="{{ url_for('admin_replies', event_id=event.id) }}" style="font-size:11.5px;">회신 메일 관리에서 보기</a>
-                {% elif n.status == '발송 완료' %}<span class="badge badge-muted">회신 대기</span>
-                {% else %}-{% endif %}
-              </td>
-              <td>
-                {% if n.status == '발송 실패' %}
-                  <button class="btn btn-sm" onclick="resendNotification({{ n.id }}, this)">재발송</button>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <p class="empty-state">아직 발송 처리된 안내메일이 없습니다.</p>
-    {% endif %}
-  </div>
 {% endif %}
 {% endblock %}
 
@@ -196,19 +156,6 @@
 <script>
 const EVENT_ID = {{ event.id }};
 const NOTIF_TYPE = '1차 안내';
-
-async function resendNotification(id, btn) {
-  btn.disabled = true;
-  btn.textContent = '재발송 중…';
-  const res = await fetch(`/api/notification/${id}/resend`, { method: 'POST' });
-  if (res.ok) {
-    location.reload();
-  } else {
-    btn.disabled = false;
-    btn.textContent = '재발송';
-    alert('재발송 대기열로 옮기지 못했습니다.');
-  }
-}
 
 function updateSummaryKpi(s) {
   document.getElementById('nkpi-total').firstChild.textContent = s.total;

@@ -461,26 +461,12 @@ def admin_notifications():
     error_orders = [o for o in orders if o.validation_errors()]
     # 이 페이지는 "1차 안내"만 다룬다. 회신·AI 답변은 /admin/replies 로 옮겼다 —
     # 두 흐름이 한 페이지에 섞여 있으니 어디서 뭘 봐야 할지 헷갈린다는 피드백을 반영.
+    # 발송 후 조직원별 상세·재발송은 /admin/history 에서 다룬다 (중복 화면 제거).
     drafts = (
         Notification.query.filter_by(
             event_id=event.id, status=Notification.STATUS_PENDING, notification_type="1차 안내"
         )
         .order_by(Notification.id)
-        .all()
-    )
-    # NULLS LAST는 SQLite 버전에 따라 지원 여부가 갈려서, CASE로 직접
-    # "sent_at이 없는 행을 뒤로" 보내는 방식을 쓴다 (두 백엔드 모두에서 동작 보장).
-    processed = (
-        Notification.query.filter(
-            Notification.event_id == event.id,
-            Notification.status != Notification.STATUS_PENDING,
-            Notification.notification_type == "1차 안내",
-        )
-        .order_by(
-            db.case((Notification.sent_at.is_(None), 1), else_=0),
-            Notification.sent_at.desc(),
-            Notification.id.desc(),
-        )
         .all()
     )
 
@@ -491,7 +477,6 @@ def admin_notifications():
         notify_candidates=notify_candidates,
         error_orders=error_orders,
         drafts=drafts,
-        processed=processed,
         summary=_notification_summary(event.id, notification_type="1차 안내"),
     )
 
@@ -801,6 +786,22 @@ def api_notifications():
     notification_type = request.args.get("notification_type")
     if notification_type:
         query = query.filter(Notification.notification_type == notification_type)
+
+    reply_status = request.args.get("reply_status")
+    if reply_status == "회신 완료":
+        query = query.filter(Notification.reply_content.isnot(None))
+    elif reply_status == "회신 대기":
+        query = query.filter(
+            Notification.status == Notification.STATUS_SENT, Notification.reply_content.is_(None)
+        )
+
+    reply_category = request.args.get("reply_category")
+    if reply_category:
+        query = query.filter(Notification.reply_category == reply_category)
+
+    process_status = request.args.get("process_status")
+    if process_status:
+        query = query.filter(Notification.process_status == process_status)
 
     q = request.args.get("q")
     if q:
