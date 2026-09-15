@@ -45,7 +45,7 @@
   <div class="card">
     <div class="card-title">
       미주문자 마감 임박 순
-      <span class="muted">D-day가 가까운 15명 · <a href="{{ url_for('admin_unordered', event_id=event.id) }}">전체 보기</a></span>
+      <span class="muted">D-day가 가까운 15명 · <a href="{{ url_for('admin_orders', event_id=event.id, ordered='false') }}">전체 보기</a></span>
     </div>
     <div class="table-wrap">
       <table class="data">

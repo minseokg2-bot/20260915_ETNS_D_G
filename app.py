@@ -295,25 +295,19 @@ def admin_orders():
         event=event,
         departments=departments,
         destinations=destinations,
-        mode="all",
     )
 
 
 @app.route("/admin/unordered")
 @admin_required
 def admin_unordered():
-    events = Event.query.order_by(Event.id.desc()).all()
-    event = _current_event(request.args.get("event_id", type=int))
-    departments = [d[0] for d in db.session.query(User.department).distinct() if d[0]]
-    destinations = [d[0] for d in db.session.query(EmployeeOrder.destination).distinct() if d[0]]
-    return render_template(
-        "admin/orders.html",
-        events=events,
-        event=event,
-        departments=departments,
-        destinations=destinations,
-        mode="unordered",
-    )
+    """예전에 따로 있던 '미주문자 관리' 메뉴. 주문 현황의 필터 하나였을 뿐이라
+    화면을 합쳤다 — 옛 링크나 북마크가 있으면 필터가 걸린 채로 그대로 이동시킨다."""
+    args = {"ordered": "false"}
+    event_id = request.args.get("event_id", type=int)
+    if event_id:
+        args["event_id"] = event_id
+    return redirect(url_for("admin_orders", **args))
 
 
 def _parse_bool(value):
