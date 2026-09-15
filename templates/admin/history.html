@@ -13,26 +13,15 @@
       <option value="발송 실패">발송 실패</option>
       <option value="발송 제외">발송 제외</option>
     </select>
-    <select id="f-reply">
-      <option value="">전체 회신상태</option>
-      <option value="회신 완료">회신 완료</option>
-      <option value="회신 대기">회신 대기</option>
-    </select>
-    <select id="f-process">
-      <option value="">전체 처리상태</option>
-      <option value="처리 완료">처리 완료</option>
-      <option value="처리 중">처리 중</option>
-      <option value="미처리">미처리</option>
-    </select>
     <input type="search" id="f-q" placeholder="이름 검색">
     <span id="row-count" class="meta" style="color:var(--muted); font-size:12.5px;"></span>
   </div>
 
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>이름</th><th>부서</th><th>행사</th><th>단계</th><th>제목</th><th>발송상태</th><th>발송일시</th><th>회신상태</th><th>처리상태</th><th></th></tr></thead>
+      <thead><tr><th>이름</th><th>부서</th><th>행사</th><th>단계</th><th>제목</th><th>발송상태</th><th>발송일시</th><th></th></tr></thead>
       <tbody id="history-body">
-        <tr><td colspan="10" class="empty-state">불러오는 중…</td></tr>
+        <tr><td colspan="8" class="empty-state">불러오는 중…</td></tr>
       </tbody>
     </table>
   </div>
@@ -50,27 +39,13 @@ function statusBadge(s) {
   return `<span class="badge badge-muted">${s}</span>`;
 }
 
-function replyBadge(s) {
-  return s === '회신 완료' ? `<span class="badge badge-navy">${s}</span>` : `<span class="badge badge-muted">${s}</span>`;
-}
-
-function processBadge(s) {
-  if (s === '처리 완료') return `<span class="badge badge-ok">${s}</span>`;
-  if (s === '처리 중') return `<span class="badge badge-warn">${s}</span>`;
-  return `<span class="badge badge-muted">${s}</span>`;
-}
-
 async function loadHistory() {
   const params = new URLSearchParams();
   const eventId = document.getElementById('f-event').value;
   const status = document.getElementById('f-status').value;
-  const replyStatus = document.getElementById('f-reply').value;
-  const processStatus = document.getElementById('f-process').value;
   const q = document.getElementById('f-q').value.trim();
   if (eventId) params.set('event_id', eventId);
   if (status) params.set('status', status);
-  if (replyStatus) params.set('reply_status', replyStatus);
-  if (processStatus) params.set('process_status', processStatus);
   if (q) params.set('q', q);
 
   const res = await fetch(`/api/notifications?${params}`);
@@ -88,11 +63,9 @@ async function loadHistory() {
       <td>${esc(r.subject)}</td>
       <td>${statusBadge(r.status)}</td>
       <td>${r.sent_at || '-'}</td>
-      <td>${r.status === '발송 완료' ? replyBadge(r.reply_status) : '-'}</td>
-      <td>${r.status === '발송 완료' ? processBadge(r.process_status) : '-'}</td>
       <td>${r.status === '발송 실패' ? `<button class="btn btn-sm" onclick="resendNotification(${r.id}, this)">재발송</button>` : ''}</td>
     </tr>
-  `).join('') : `<tr><td colspan="10" class="empty-state">조건에 맞는 이력이 없습니다.</td></tr>`;
+  `).join('') : `<tr><td colspan="8" class="empty-state">조건에 맞는 이력이 없습니다.</td></tr>`;
 }
 
 async function resendNotification(id, btn) {
@@ -108,7 +81,7 @@ async function resendNotification(id, btn) {
   }
 }
 
-['f-event', 'f-status', 'f-reply', 'f-process'].forEach(id => document.getElementById(id).addEventListener('change', loadHistory));
+['f-event', 'f-status'].forEach(id => document.getElementById(id).addEventListener('change', loadHistory));
 document.getElementById('f-q').addEventListener('input', loadHistory);
 loadHistory();
 </script>

@@ -24,7 +24,7 @@ from flask_login import (
 from werkzeug.security import check_password_hash
 
 from config import Config, POSTGRES_SCHEMA
-from mailwriter import classify_reply, generate_email, generate_reply_response
+from mailwriter import generate_email
 from models import EMAIL_RE, DestinationLeadTime, EmployeeOrder, Event, Notification, User, db
 from seed import seed_if_empty
 
@@ -459,8 +459,6 @@ def admin_notifications():
         key=lambda o: (o.dday() is None, o.dday()),
     )
     error_orders = [o for o in orders if o.validation_errors()]
-    # 이 페이지는 "1차 안내"만 다룬다. 회신·AI 답변은 /admin/replies 로 옮겼다 —
-    # 두 흐름이 한 페이지에 섞여 있으니 어디서 뭘 봐야 할지 헷갈린다는 피드백을 반영.
     # 발송 후 조직원별 상세·재발송은 /admin/history 에서 다룬다 (중복 화면 제거).
     drafts = (
         Notification.query.filter_by(
@@ -482,12 +480,7 @@ def admin_notifications():
 
 
 def _notification_summary(event_id, notification_type=None):
-    """발송 진행률 + 회신 현황 요약.
-
-    notification_type을 안 주면(대시보드용) 1차 안내·회신 답변을 합쳐서 보고,
-    "1차 안내"로 좁히면(안내메일 관리 페이지용) 그 종류만 집계한다. 회신
-    자체에 대한 자세한 통계(처리상태 등)는 _reply_summary()가 따로 맡는다.
-    """
+    """발송 진행률 요약."""
     query = Notification.query.filter_by(event_id=event_id)
     if notification_type:
         query = query.filter_by(notification_type=notification_type)
@@ -497,8 +490,6 @@ def _notification_summary(event_id, notification_type=None):
     pending = sum(1 for r in rows if r.status == Notification.STATUS_PENDING)
     failed = sum(1 for r in rows if r.status == Notification.STATUS_FAILED)
     excluded = sum(1 for r in rows if r.status == Notification.STATUS_EXCLUDED)
-    reply_done = sum(1 for r in rows if r.status == Notification.STATUS_SENT and r.reply_content)
-    reply_pending = sent - reply_done
     processed_count = sent + failed + excluded
     return {
         "total": total,
@@ -506,43 +497,17 @@ def _notification_summary(event_id, notification_type=None):
         "pending": pending,
         "failed": failed,
         "excluded": excluded,
-        "reply_done": reply_done,
-        "reply_pending": reply_pending,
         "progress": round(processed_count / total * 100) if total else 0,
     }
 
 
-def _reply_summary(event_id):
-    """회신 메일 관리 페이지 전용 요약. "1차 안내" 중 회신이 달린 것과, 그에 대한
-    AI 답변(별도 "회신 답변" 행)의 발송 상태를 따로 센다."""
-    replied = (
-        Notification.query.filter_by(event_id=event_id, notification_type="1차 안내")
-        .filter(Notification.reply_content.isnot(None))
-        .all()
-    )
-    responses = Notification.query.filter_by(event_id=event_id, notification_type="회신 답변").all()
-    return {
-        "total_replies": len(replied),
-        "process_done": sum(1 for r in replied if r.process_status == Notification.PROCESS_DONE),
-        "process_in_progress": sum(1 for r in replied if r.process_status == Notification.PROCESS_IN_PROGRESS),
-        "process_unhandled": sum(1 for r in replied if r.process_status == Notification.PROCESS_UNHANDLED),
-        "ai_pending": sum(1 for r in responses if r.status == Notification.STATUS_PENDING),
-        "ai_sent": sum(1 for r in responses if r.status == Notification.STATUS_SENT),
-        "ai_failed": sum(1 for r in responses if r.status == Notification.STATUS_FAILED),
-    }
-
-
 def _process_one_notification(n):
-    """대기 중인 알림 한 건을 실제로 처리한다 (발송 또는 제외 또는 실패).
+    """대기 중인 안내메일 한 건을 실제로 처리한다 (발송 또는 제외 또는 실패).
 
-    "1차 안내"와 "회신 답변" 둘 다 이 함수로 처리한다. 발송 직전 재확인
-    (그 사이 주문을 끝냈으면 건너뛰기)은 1차 안내에만 적용한다 — 회신 답변은
-    상대가 물어본 것에 대한 응답이라, 그 사이 주문 여부와 상관없이 나가야
-    한다.
-
+    발송 직전 재확인 — 그 사이 주문을 끝낸 사람은 발송 대상에서 제외한다.
     호출부(배치 처리용 process-next, 단건 발송 둘 다)에서 재사용한다.
     """
-    if n.notification_type == "1차 안내" and n.order.ordered:
+    if n.order.ordered:
         n.status = Notification.STATUS_EXCLUDED
         result = {"id": n.id, "name": n.recipient.name, "status": n.status, "fail_reason": None}
     else:
@@ -554,13 +519,7 @@ def _process_one_notification(n):
         else:
             n.status = Notification.STATUS_SENT
             n.sent_at = datetime.now()
-            if n.notification_type == "1차 안내":
-                n.order.notice_status = "1차 안내 완료"
-            elif n.notification_type == "회신 답변" and n.in_reply_to is not None:
-                # 회신에 대한 답변을 실제로 보냈으면, 그 회신 건은 이제 "처리 완료"다.
-                # 이걸 자동으로 안 옮겨 주면 관리자가 매번 드롭다운을 열어 손으로
-                # 바꿔야 하는데, 그러면 AI가 답변을 대신 쓰는 의미가 절반은 없어진다.
-                n.in_reply_to.process_status = Notification.PROCESS_DONE
+            n.order.notice_status = "1차 안내 완료"
         result = {
             "id": n.id, "name": n.recipient.name, "status": n.status,
             "fail_reason": n.fail_reason,
@@ -573,12 +532,6 @@ def _process_one_notification(n):
 @admin_required
 def api_process_next_notification():
     """발송 대기 중인 초안 하나를 골라 처리한다.
-
-    안내메일 관리와 회신 메일 관리, 두 페이지가 이 엔드포인트를 같이 쓴다.
-    `notification_type`을 안 보내면 이벤트 전체(1차 안내 + 회신 답변)에서 아무거나
-    하나 고르고, 보내면 그 종류에서만 고른다 — 한 페이지의 "일괄 발송 시작"이
-    다른 페이지에 쌓인, 아직 검토 안 된 초안까지 건드리지 않도록 페이지마다
-    자기 종류로 좁혀서 호출한다.
 
     프런트엔드가 이 엔드포인트를 짧은 간격으로 반복 호출하면서 진행률 바를
     채워 나간다. 서버리스 환경에서는 요청이 끝나면 프로세스가 곧 종료될 수
@@ -610,44 +563,15 @@ def api_process_next_notification():
     })
 
 
-@app.route("/api/notification/<int:notification_id>/send-single", methods=["POST"])
-@admin_required
-def api_send_single_notification(notification_id):
-    """초안 한 건만 콕 집어 바로 처리한다. 주로 AI 답변 초안 발송에 쓴다 —
-
-    1차 안내는 여러 건을 한꺼번에 다루는 경우가 많아 배치(process-next)
-    버튼을 쓰지만, 회신 답변은 보통 한 번에 하나씩 확인하고 보내는 편이
-    자연스러워서 단건 발송 버튼을 별도로 둔다.
-    """
-    n = db.session.get(Notification, notification_id)
-    if n is None:
-        return jsonify({"error": "안내 메일을 찾을 수 없습니다."}), 404
-    if n.status != Notification.STATUS_PENDING:
-        return jsonify({"error": "발송 대기 상태가 아닙니다."}), 400
-
-    result = _process_one_notification(n)
-    return jsonify({"done": True, "processed": result})
-
-
 @app.route("/api/notifications/summary")
 @admin_required
 def api_notifications_summary():
-    """읽기 전용 요약. 안내메일 관리·회신 메일 관리 각 페이지가 5초마다 폴링해서
-    자기 종류(1차 안내 / 회신 답변)의 진행률만 정확히 갱신하는 데 쓴다."""
+    """읽기 전용 요약. 안내메일 관리 페이지가 5초마다 폴링해서 진행률을 갱신하는 데 쓴다."""
     event_id = request.args.get("event_id", type=int)
     if not event_id:
         return jsonify({"error": "event_id가 필요합니다."}), 400
     notif_type = request.args.get("notification_type") or None
     return jsonify(_notification_summary(event_id, notification_type=notif_type))
-
-
-@app.route("/api/replies/summary")
-@admin_required
-def api_replies_summary():
-    event_id = request.args.get("event_id", type=int)
-    if not event_id:
-        return jsonify({"error": "event_id가 필요합니다."}), 400
-    return jsonify(_reply_summary(event_id))
 
 
 @app.route("/api/notification/<int:notification_id>/resend", methods=["POST"])
@@ -664,96 +588,6 @@ def api_resend_notification(notification_id):
     n.fail_reason = None
     db.session.commit()
     return jsonify({"ok": True, "id": n.id})
-
-
-@app.route("/admin/notifications/<int:notification_id>/process", methods=["POST"])
-@admin_required
-def admin_update_notification_process(notification_id):
-    """관리자가 회신을 확인한 뒤 분류·처리상태를 갱신한다."""
-    n = db.session.get(Notification, notification_id)
-    if n is None:
-        abort(404)
-
-    process_status = request.form.get("process_status")
-    if process_status in (
-        Notification.PROCESS_UNHANDLED,
-        Notification.PROCESS_IN_PROGRESS,
-        Notification.PROCESS_DONE,
-    ):
-        n.process_status = process_status
-
-    category = request.form.get("reply_category")
-    category_changed = False
-    if category in Notification.REPLY_CATEGORIES and category != n.reply_category:
-        n.reply_category = category
-        category_changed = True
-    elif category == "":
-        n.reply_category = None
-
-    db.session.commit()
-
-    # 아직 발송 전인 AI 답변 초안이 있다면, 바뀐 분류에 맞춰 문구를 다시 만든다.
-    # 이미 발송된 답변은 지나간 일이라 건드리지 않는다.
-    if category_changed:
-        draft = n.response_draft()
-        if draft:
-            draft.subject, draft.content = generate_reply_response(n.event, n.order, n)
-            db.session.commit()
-
-    flash(f"{n.recipient.name}님 회신 처리상태를 갱신했습니다.", "success")
-    return redirect(url_for("admin_replies", event_id=n.event_id))
-
-
-# --------------------------------------------------------------------------
-# 관리자 — 회신 메일 관리
-#
-# "안내메일 관리"는 시스템이 내보내는 1차 안내만 다룬다. 조직원이 보낸 회신과
-# 그에 대한 AI 답변은 흐름이 완전히 달라서(받는다 → 분류한다 → 답한다) 같은
-# 화면에 섞어 두면 지금 뭘 보고 있는 건지 헷갈린다. 그래서 별도 페이지로 뗐다.
-# --------------------------------------------------------------------------
-@app.route("/admin/replies", methods=["GET", "POST"])
-@admin_required
-def admin_replies():
-    events = Event.query.order_by(Event.id.desc()).all()
-    event = _current_event(request.args.get("event_id", type=int) or request.form.get("event_id", type=int))
-
-    if event is None:
-        return render_template("admin/replies.html", events=events, event=None)
-
-    if request.method == "POST":
-        action = request.form.get("action")
-        if action == "discard":
-            note_id = request.form.get("notification_id", type=int)
-            n = db.session.get(Notification, note_id)
-            if n and n.status == Notification.STATUS_PENDING and n.notification_type == "회신 답변":
-                db.session.delete(n)
-                db.session.commit()
-        return redirect(url_for("admin_replies", event_id=event.id))
-
-    replies = (
-        Notification.query.filter_by(event_id=event.id, notification_type="1차 안내")
-        .filter(Notification.reply_content.isnot(None))
-        .order_by(Notification.reply_at.desc())
-        .all()
-    )
-    ai_drafts = (
-        Notification.query.filter_by(
-            event_id=event.id, notification_type="회신 답변", status=Notification.STATUS_PENDING
-        )
-        .order_by(Notification.id)
-        .all()
-    )
-
-    return render_template(
-        "admin/replies.html",
-        events=events,
-        event=event,
-        replies=replies,
-        ai_drafts=ai_drafts,
-        summary=_reply_summary(event.id),
-        reply_categories=Notification.REPLY_CATEGORIES,
-        process_statuses=(Notification.PROCESS_UNHANDLED, Notification.PROCESS_IN_PROGRESS, Notification.PROCESS_DONE),
-    )
 
 
 # --------------------------------------------------------------------------
@@ -786,22 +620,6 @@ def api_notifications():
     notification_type = request.args.get("notification_type")
     if notification_type:
         query = query.filter(Notification.notification_type == notification_type)
-
-    reply_status = request.args.get("reply_status")
-    if reply_status == "회신 완료":
-        query = query.filter(Notification.reply_content.isnot(None))
-    elif reply_status == "회신 대기":
-        query = query.filter(
-            Notification.status == Notification.STATUS_SENT, Notification.reply_content.is_(None)
-        )
-
-    reply_category = request.args.get("reply_category")
-    if reply_category:
-        query = query.filter(Notification.reply_category == reply_category)
-
-    process_status = request.args.get("process_status")
-    if process_status:
-        query = query.filter(Notification.process_status == process_status)
 
     q = request.args.get("q")
     if q:
@@ -927,13 +745,8 @@ def employee_dashboard():
         for o in orders
     ]
 
-    # "회신 답변"(담당자가 보낸 답장)도 이 조직원에게 SENT 상태로 걸린 별도 행이라,
-    # 필터 없이 가져오면 원래 안내메일 카드 안에 이미 보여주는 답변이 목록에 또
-    # 독립된 카드로 나타나 중복돼 보인다. 1차 안내만 이 목록의 대상이다.
     my_notifications = (
-        Notification.query.filter_by(
-            user_id=current_user.id, status=Notification.STATUS_SENT, notification_type="1차 안내"
-        )
+        Notification.query.filter_by(user_id=current_user.id, status=Notification.STATUS_SENT)
         .order_by(Notification.sent_at.desc())
         .all()
     )
@@ -943,66 +756,6 @@ def employee_dashboard():
         cards=cards,
         notifications=my_notifications,
     )
-
-
-@app.route("/employee/notifications/<int:notification_id>/reply", methods=["POST"])
-@login_required
-def employee_reply(notification_id):
-    """조직원이 받은 안내메일에 회신한다.
-
-    본인에게 온 메일인지를 user_id로 한 번 더 확인한다 — URL의 id만 바꿔서
-    남의 메일에 회신한 것처럼 꾸미는 걸 막기 위해서다.
-
-    회신 유형은 조직원이 직접 고르지 않는다. 내용을 보고 시스템이 바로
-    분류하고, 그 유형에 맞는 답변 초안까지 함께 만들어 둔다 — 관리자가
-    할 일은 초안을 훑어보고 발송 버튼을 누르는 것만 남는다.
-    """
-    n = Notification.query.filter_by(
-        id=notification_id, user_id=current_user.id, status=Notification.STATUS_SENT
-    ).first()
-    if n is None:
-        flash("해당 안내메일을 찾을 수 없습니다.", "error")
-        return redirect(url_for("employee_dashboard"))
-
-    content = request.form.get("content", "").strip()
-    if not content:
-        flash("회신 내용을 입력해 주세요.", "error")
-        return redirect(url_for("employee_dashboard"))
-
-    n.reply_content = content
-    n.reply_category = classify_reply(content)
-    n.reply_at = datetime.now()
-    n.process_status = Notification.PROCESS_UNHANDLED
-    db.session.commit()
-
-    _create_response_draft(n)
-
-    flash("회신을 보냈습니다.", "success")
-    return redirect(url_for("employee_dashboard"))
-
-
-def _create_response_draft(source):
-    """회신 한 건에 대한 AI 답변 초안을 만든다. 이미 있으면 새로 만들지 않는다."""
-    existing = Notification.query.filter_by(
-        in_reply_to_id=source.id, notification_type="회신 답변"
-    ).first()
-    if existing:
-        return existing
-
-    subject, content = generate_reply_response(source.event, source.order, source)
-    draft = Notification(
-        event_id=source.event_id,
-        user_id=source.user_id,
-        order_id=source.order_id,
-        in_reply_to_id=source.id,
-        notification_type="회신 답변",
-        subject=subject,
-        content=content,
-        status=Notification.STATUS_PENDING,
-    )
-    db.session.add(draft)
-    db.session.commit()
-    return draft
 
 
 # --------------------------------------------------------------------------
@@ -1060,13 +813,6 @@ def _add_column_if_missing(table, column, pg_type, sqlite_type=None):
 def _migrate_schema():
     """이번 세션에서 추가된 Notification 컬럼들을 기존 배포 DB에도 반영한다."""
     _add_column_if_missing("notifications", "fail_reason", "VARCHAR(200)")
-    _add_column_if_missing("notifications", "reply_content", "TEXT")
-    _add_column_if_missing("notifications", "reply_category", "VARCHAR(30)")
-    _add_column_if_missing("notifications", "reply_at", "TIMESTAMP")
-    _add_column_if_missing(
-        "notifications", "process_status", "VARCHAR(20) NOT NULL DEFAULT '미처리'"
-    )
-    _add_column_if_missing("notifications", "in_reply_to_id", "INTEGER")
 
 
 # --------------------------------------------------------------------------

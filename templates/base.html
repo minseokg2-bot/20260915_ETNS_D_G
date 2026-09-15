@@ -21,7 +21,6 @@
           <a href="{{ url_for('admin_events') }}" class="{{ 'active' if request.endpoint == 'admin_events' }}">🗂 <span class="label">행사 관리</span></a>
           <a href="{{ url_for('admin_orders') }}" class="{{ 'active' if request.endpoint in ('admin_orders', 'admin_unordered') }}">📦 <span class="label">주문 현황</span></a>
           <a href="{{ url_for('admin_notifications') }}" class="{{ 'active' if request.endpoint == 'admin_notifications' }}">✉️ <span class="label">안내메일 관리</span></a>
-          <a href="{{ url_for('admin_replies') }}" class="{{ 'active' if request.endpoint == 'admin_replies' }}">💬 <span class="label">회신 메일 관리</span></a>
           <a href="{{ url_for('admin_history') }}" class="{{ 'active' if request.endpoint == 'admin_history' }}">🕘 <span class="label">발송 이력</span></a>
           <a href="{{ url_for('admin_employees') }}" class="{{ 'active' if request.endpoint == 'admin_employees' }}">👥 <span class="label">조직원 관리</span></a>
         {% else %}

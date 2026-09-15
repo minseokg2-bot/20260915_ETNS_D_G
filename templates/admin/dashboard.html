@@ -91,7 +91,7 @@
 
   <div class="card" style="margin-top:16px;">
     <div class="card-title">
-      이메일 발송 · 회신 현황
+      이메일 발송 현황
       <span class="muted"><a href="{{ url_for('admin_notifications', event_id=event.id) }}">안내메일 관리로 이동</a></span>
     </div>
     <div class="kpi-row" id="send-kpi-row" style="margin-bottom:14px;">
@@ -99,8 +99,6 @@
       <div class="kpi" style="--kpi-color:#1a7f5a"><div class="label">발송 완료</div><div class="value" id="dkpi-sent">{{ notify_summary.sent }}<span class="unit">건</span></div></div>
       <div class="kpi" style="--kpi-color:#b7791f"><div class="label">발송 대기</div><div class="value" id="dkpi-pending">{{ notify_summary.pending }}<span class="unit">건</span></div></div>
       <div class="kpi" style="--kpi-color:#c0392b"><div class="label">발송 실패</div><div class="value" id="dkpi-failed">{{ notify_summary.failed }}<span class="unit">건</span></div></div>
-      <div class="kpi" style="--kpi-color:#0f2a4a"><div class="label">회신 완료</div><div class="value" id="dkpi-reply-done">{{ notify_summary.reply_done }}<span class="unit">건</span></div></div>
-      <div class="kpi" style="--kpi-color:#6b7686"><div class="label">회신 대기</div><div class="value" id="dkpi-reply-pending">{{ notify_summary.reply_pending }}<span class="unit">건</span></div></div>
     </div>
     <div class="progress-bar"><div class="progress-bar-fill" id="dashboard-send-progress" style="width:{{ notify_summary.progress }}%"></div></div>
     <p class="meta" style="margin:6px 0 0; font-size:13px; color:var(--muted);">발송 진행률 <strong id="dashboard-send-progress-text">{{ notify_summary.progress }}%</strong></p>
@@ -162,8 +160,6 @@ async function refreshDashboard() {
       document.getElementById('dkpi-sent').firstChild.textContent = ns.sent;
       document.getElementById('dkpi-pending').firstChild.textContent = ns.pending;
       document.getElementById('dkpi-failed').firstChild.textContent = ns.failed;
-      document.getElementById('dkpi-reply-done').firstChild.textContent = ns.reply_done;
-      document.getElementById('dkpi-reply-pending').firstChild.textContent = ns.reply_pending;
       document.getElementById('dashboard-send-progress').style.width = ns.progress + '%';
       document.getElementById('dashboard-send-progress-text').textContent = ns.progress + '%';
     }
