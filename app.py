@@ -915,6 +915,38 @@ def healthz():
         return info, 500
 
 
+def _add_column_if_missing(table, column, pg_type, sqlite_type=None):
+    """db.create_all()은 없는 테이블만 만들 뿐, 이미 배포된 테이블에 나중에 추가한
+    컬럼을 채워 넣어 주지 않는다 (이게 원래 SQLAlchemy의 동작이다 — 마이그레이션
+    도구가 아니다). 그래서 새 컬럼을 추가할 때마다 여기 한 줄씩 적어 둬야 기존
+    배포에도 반영된다. Postgres는 `ADD COLUMN IF NOT EXISTS`로 간단히 되고,
+    SQLite는 그 구문이 없어 PRAGMA로 먼저 존재 여부를 확인한다.
+    """
+    from sqlalchemy import text
+
+    if Config._IS_POSTGRES:
+        db.session.execute(
+            text(f'ALTER TABLE {POSTGRES_SCHEMA}."{table}" ADD COLUMN IF NOT EXISTS "{column}" {pg_type}')
+        )
+    else:
+        cols = {row[1] for row in db.session.execute(text(f"PRAGMA table_info({table})"))}
+        if column not in cols:
+            db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sqlite_type or pg_type}"))
+    db.session.commit()
+
+
+def _migrate_schema():
+    """이번 세션에서 추가된 Notification 컬럼들을 기존 배포 DB에도 반영한다."""
+    _add_column_if_missing("notifications", "fail_reason", "VARCHAR(200)")
+    _add_column_if_missing("notifications", "reply_content", "TEXT")
+    _add_column_if_missing("notifications", "reply_category", "VARCHAR(30)")
+    _add_column_if_missing("notifications", "reply_at", "TIMESTAMP")
+    _add_column_if_missing(
+        "notifications", "process_status", "VARCHAR(20) NOT NULL DEFAULT '미처리'"
+    )
+    _add_column_if_missing("notifications", "in_reply_to_id", "INTEGER")
+
+
 # --------------------------------------------------------------------------
 # 기동
 # --------------------------------------------------------------------------
@@ -933,6 +965,7 @@ try:
             db.session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {POSTGRES_SCHEMA}"))
             db.session.commit()
         db.create_all()
+        _migrate_schema()
         seed_if_empty()
 except Exception as exc:  # noqa: BLE001 - 기동을 막지 않기 위해 전부 흡수
     DB_INIT_ERROR = f"{type(exc).__name__}: {exc}"
