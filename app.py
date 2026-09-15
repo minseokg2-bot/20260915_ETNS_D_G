@@ -674,6 +674,14 @@ def healthz():
         "schema": POSTGRES_SCHEMA if Config._IS_POSTGRES else "(sqlite, 스키마 없음)",
         "database_url_set": bool(os.environ.get("DATABASE_URL", "").strip()),
         "secret_key_set": not Config.SECRET_KEY_IS_EPHEMERAL,
+        # 임시 진단 필드. 값 자체는 절대 노출하지 않고 길이·존재 여부만 본다 —
+        # DATABASE_URL이 왜 안 읽히는지 원격에서는 이 방법 말고는 확인할 수 없다.
+        "_debug": {
+            "vercel_system_var_seen": bool(os.environ.get("VERCEL")),
+            "database_url_len": len(os.environ.get("DATABASE_URL", "")),
+            "secret_key_len": len(os.environ.get("SECRET_KEY", "")),
+            "env_var_count": len(os.environ),
+        },
     }
     if DB_INIT_ERROR:
         info["startup_error"] = DB_INIT_ERROR
