@@ -119,7 +119,10 @@ delivery-management/
 
 - GitHub: `minseokg2-bot/20260915_ETNS_D_G`
 - Vercel: `20260915-etns-d-v`
-- Supabase: `20260915_ETNS_D_S`
+- Supabase: 별도 프로젝트를 새로 만들지 않고, ETNS_TODO_APP이 쓰는 것과
+  **같은 Supabase 프로젝트**를 공유한다 (무료 플랜은 계정당 프로젝트 2개 제한).
+  대신 이 앱의 테이블은 전부 `delivery` 라는 별도 Postgres 스키마 안에만 만들어져,
+  `public` 스키마의 다른 앱 테이블과 이름이 겹쳐도 서로 침범하지 않는다.
 
 로컬은 SQLite, 배포는 `DATABASE_URL`을 설정하면 Supabase(PostgreSQL)로 자동 전환된다.
 `/healthz` 가 현재 백엔드·연결 상태를 반환한다.

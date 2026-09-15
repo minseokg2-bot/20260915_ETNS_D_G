@@ -22,7 +22,7 @@ from flask_login import (
 )
 from werkzeug.security import check_password_hash
 
-from config import Config
+from config import Config, POSTGRES_SCHEMA
 from mailwriter import generate_email
 from models import EMAIL_RE, DestinationLeadTime, EmployeeOrder, Event, Notification, User, db
 from seed import seed_if_empty
@@ -671,6 +671,7 @@ def healthz():
     info = {
         "backend": Config.backend_name(),
         "target": Config.describe_target(),
+        "schema": POSTGRES_SCHEMA if Config._IS_POSTGRES else "(sqlite, 스키마 없음)",
         "database_url_set": bool(os.environ.get("DATABASE_URL", "").strip()),
         "secret_key_set": not Config.SECRET_KEY_IS_EPHEMERAL,
     }
@@ -699,6 +700,14 @@ def healthz():
 DB_INIT_ERROR = None
 try:
     with app.app_context():
+        if Config._IS_POSTGRES:
+            # Postgres는 스키마를 미리 만들어 둬야 그 안에 테이블을 만들 수 있다.
+            # 다른 앱과 같은 데이터베이스를 쓰기 때문에, 이 앱의 테이블은 전부
+            # "public"이 아닌 이 스키마 안에서만 산다.
+            from sqlalchemy import text
+
+            db.session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {POSTGRES_SCHEMA}"))
+            db.session.commit()
         db.create_all()
         seed_if_empty()
 except Exception as exc:  # noqa: BLE001 - 기동을 막지 않기 위해 전부 흡수

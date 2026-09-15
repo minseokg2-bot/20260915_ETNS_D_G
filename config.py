@@ -34,6 +34,11 @@ def _database_uri():
     return url
 
 
+# 실제로 쓸 Postgres 스키마 이름. 같은 Supabase 프로젝트를 다른 앱과 공유하기로
+# 했으므로, "public"이 아닌 별도 구역에 이 앱의 테이블만 모아 둔다.
+POSTGRES_SCHEMA = "delivery"
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
     SECRET_KEY_IS_EPHEMERAL = not os.environ.get("SECRET_KEY")
@@ -41,12 +46,23 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    _IS_POSTGRES = "sqlite" not in SQLALCHEMY_DATABASE_URI
+
     # 서버리스는 연결이 수시로 끊기고 재활용된다. pool_pre_ping으로 죽은 연결을
     # 자동 감지해 재연결하고, pool_recycle로 pgbouncer가 끊기 전에 먼저 갱신한다.
+    #
+    # schema_translate_map: models.py는 모든 테이블에 "dm"이라는 자리표시자
+    # 스키마를 붙여 둔다. 여기서 그 자리표시자를 실제 값으로 바꿔 끼운다 —
+    # Postgres에서는 진짜 스키마 "delivery"로, SQLite에서는 None(스키마 없음)으로.
+    # SQLite는 스키마 개념이 달라 그대로 두면 에러가 나므로 반드시 None이어야 한다.
     SQLALCHEMY_ENGINE_OPTIONS = (
-        {"pool_pre_ping": True, "pool_recycle": 280}
-        if "sqlite" not in SQLALCHEMY_DATABASE_URI
-        else {}
+        {
+            "pool_pre_ping": True,
+            "pool_recycle": 280,
+            "execution_options": {"schema_translate_map": {"dm": POSTGRES_SCHEMA}},
+        }
+        if _IS_POSTGRES
+        else {"execution_options": {"schema_translate_map": {"dm": None}}}
     )
 
     @staticmethod

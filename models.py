@@ -10,8 +10,19 @@ from datetime import date, datetime, timedelta
 
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import MetaData
 
-db = SQLAlchemy()
+# 모든 테이블에 스키마 하나를 일괄 지정한다. "dm"은 실제 스키마명이 아니라
+# 자리표시자이고, config.py가 엔진을 만들 때 schema_translate_map으로 실행
+# 시점에 실제 값으로 바꿔 끼운다 — Postgres 배포에서는 "delivery"로, 로컬
+# SQLite에서는 스키마 없음(None)으로. 여기서 한 곳에만 지정해 두면 모델 안의
+# `db.ForeignKey("events.id")` 같은 스키마 없는 참조도 같은 기본 스키마를
+# 따라가므로 테이블마다 스키마를 따로 적을 필요가 없다.
+#
+# 이렇게 나눈 이유: 다른 앱과 같은 Supabase 프로젝트(같은 Postgres 데이터베이스)를
+# 함께 쓰기로 했는데, 그 앱도 "users" 테이블을 쓴다. 스키마로 구역을 나눠 두면
+# 테이블 이름이 겹쳐도 서로 침범하지 않는다.
+db = SQLAlchemy(metadata=MetaData(schema="dm"))
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
