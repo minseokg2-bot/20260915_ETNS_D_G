@@ -545,6 +545,11 @@ def _process_one_notification(n):
             n.sent_at = datetime.now()
             if n.notification_type == "1차 안내":
                 n.order.notice_status = "1차 안내 완료"
+            elif n.notification_type == "회신 답변" and n.in_reply_to is not None:
+                # 회신에 대한 답변을 실제로 보냈으면, 그 회신 건은 이제 "처리 완료"다.
+                # 이걸 자동으로 안 옮겨 주면 관리자가 매번 드롭다운을 열어 손으로
+                # 바꿔야 하는데, 그러면 AI가 답변을 대신 쓰는 의미가 절반은 없어진다.
+                n.in_reply_to.process_status = Notification.PROCESS_DONE
         result = {
             "id": n.id, "name": n.recipient.name, "status": n.status,
             "fail_reason": n.fail_reason,
