@@ -24,7 +24,7 @@ from flask_login import (
 from werkzeug.security import check_password_hash
 
 from config import Config, POSTGRES_SCHEMA
-from mailwriter import generate_email
+from mailwriter import classify_reply, generate_email, generate_reply_response
 from models import EMAIL_RE, DestinationLeadTime, EmployeeOrder, Event, Notification, User, db
 from seed import seed_if_empty
 
@@ -426,8 +426,12 @@ def admin_notifications():
             flash(f"안내메일 초안 {created}건을 생성했습니다.", "success")
 
         elif action == "recheck":
+            # "그 사이 주문완료" 재확인은 미주문 안내(1차 안내)에만 의미가 있다.
+            # 회신에 대한 답변은 주문 여부와 상관없이 나가야 하는 응답이라 건드리지 않는다.
             pending = Notification.query.filter_by(
-                event_id=event.id, status=Notification.STATUS_PENDING
+                event_id=event.id,
+                status=Notification.STATUS_PENDING,
+                notification_type="1차 안내",
             ).all()
             excluded = 0
             for n in pending:
@@ -461,13 +465,16 @@ def admin_notifications():
         .all()
     )
     # 하단 상세 표 — 대기 중인 초안은 위쪽 카드에 이미 보이니 여기서는 제외하고,
-    # 실제로 처리(발송완료/실패/제외)된 건과 회신을 한눈에 본다.
+    # 실제로 처리(발송완료/실패/제외)된 "1차 안내" 건과 그 회신을 한눈에 본다.
+    # (회신에 대한 AI 답변은 별도 알림 행이 아니라 이 표의 회신 보기 안에서
+    # 같이 보여준다 — 조직원 한 명당 한 줄이 유지되도록.)
     # NULLS LAST는 SQLite 버전에 따라 지원 여부가 갈려서, CASE로 직접
     # "sent_at이 없는 행을 뒤로" 보내는 방식을 쓴다 (두 백엔드 모두에서 동작 보장).
     processed = (
         Notification.query.filter(
             Notification.event_id == event.id,
             Notification.status != Notification.STATUS_PENDING,
+            Notification.notification_type == "1차 안내",
         )
         .order_by(
             db.case((Notification.sent_at.is_(None), 1), else_=0),
@@ -514,10 +521,42 @@ def _notification_summary(event_id):
     }
 
 
+def _process_one_notification(n):
+    """대기 중인 알림 한 건을 실제로 처리한다 (발송 또는 제외 또는 실패).
+
+    "1차 안내"와 "회신 답변" 둘 다 이 함수로 처리한다. 발송 직전 재확인
+    (그 사이 주문을 끝냈으면 건너뛰기)은 1차 안내에만 적용한다 — 회신 답변은
+    상대가 물어본 것에 대한 응답이라, 그 사이 주문 여부와 상관없이 나가야
+    한다.
+
+    호출부(배치 처리용 process-next, 단건 발송 둘 다)에서 재사용한다.
+    """
+    if n.notification_type == "1차 안내" and n.order.ordered:
+        n.status = Notification.STATUS_EXCLUDED
+        result = {"id": n.id, "name": n.recipient.name, "status": n.status, "fail_reason": None}
+    else:
+        # 실제 이메일 발송 API가 없어 결과를 흉내 낸다. 90% 성공 / 10% 실패로
+        # "발송 실패 → 재발송" 흐름을 시연할 수 있게 한다.
+        if random.random() < 0.10:
+            n.status = Notification.STATUS_FAILED
+            n.fail_reason = "임시 발송 오류 (시뮬레이션)"
+        else:
+            n.status = Notification.STATUS_SENT
+            n.sent_at = datetime.now()
+            if n.notification_type == "1차 안내":
+                n.order.notice_status = "1차 안내 완료"
+        result = {
+            "id": n.id, "name": n.recipient.name, "status": n.status,
+            "fail_reason": n.fail_reason,
+        }
+    db.session.commit()
+    return result
+
+
 @app.route("/api/notifications/process-next", methods=["POST"])
 @admin_required
 def api_process_next_notification():
-    """발송 대기 중인 초안 하나를 골라 실제로 처리한다.
+    """발송 대기 중인 초안(1차 안내 + 회신 답변 모두) 하나를 골라 처리한다.
 
     프런트엔드가 이 엔드포인트를 짧은 간격으로 반복 호출하면서 진행률 바를
     채워 나간다. 서버리스 환경에서는 요청이 끝나면 프로세스가 곧 종료될 수
@@ -539,27 +578,27 @@ def api_process_next_notification():
     if n is None:
         return jsonify({"done": True, "summary": _notification_summary(event_id)})
 
-    # 발송 직전 재확인: 초안을 만든 뒤 대상자가 그 사이 주문을 끝냈으면 보내지 않는다.
-    if n.order.ordered:
-        n.status = Notification.STATUS_EXCLUDED
-        result = {"id": n.id, "name": n.recipient.name, "status": n.status}
-    else:
-        # 실제 이메일 발송 API가 없어 결과를 흉내 낸다. 90% 성공 / 10% 실패로
-        # "발송 실패 → 재발송" 흐름을 시연할 수 있게 한다.
-        if random.random() < 0.10:
-            n.status = Notification.STATUS_FAILED
-            n.fail_reason = "임시 발송 오류 (시뮬레이션)"
-        else:
-            n.status = Notification.STATUS_SENT
-            n.sent_at = datetime.now()
-            n.order.notice_status = "1차 안내 완료"
-        result = {
-            "id": n.id, "name": n.recipient.name, "status": n.status,
-            "fail_reason": n.fail_reason,
-        }
-
-    db.session.commit()
+    result = _process_one_notification(n)
     return jsonify({"done": False, "processed": result, "summary": _notification_summary(event_id)})
+
+
+@app.route("/api/notification/<int:notification_id>/send-single", methods=["POST"])
+@admin_required
+def api_send_single_notification(notification_id):
+    """초안 한 건만 콕 집어 바로 처리한다. 주로 AI 답변 초안 발송에 쓴다 —
+
+    1차 안내는 여러 건을 한꺼번에 다루는 경우가 많아 배치(process-next)
+    버튼을 쓰지만, 회신 답변은 보통 한 번에 하나씩 확인하고 보내는 편이
+    자연스러워서 단건 발송 버튼을 별도로 둔다.
+    """
+    n = db.session.get(Notification, notification_id)
+    if n is None:
+        return jsonify({"error": "안내 메일을 찾을 수 없습니다."}), 404
+    if n.status != Notification.STATUS_PENDING:
+        return jsonify({"error": "발송 대기 상태가 아닙니다."}), 400
+
+    result = _process_one_notification(n)
+    return jsonify({"done": True, "processed": result})
 
 
 @app.route("/api/notification/<int:notification_id>/resend", methods=["POST"])
@@ -595,12 +634,23 @@ def admin_update_notification_process(notification_id):
         n.process_status = process_status
 
     category = request.form.get("reply_category")
-    if category in Notification.REPLY_CATEGORIES:
+    category_changed = False
+    if category in Notification.REPLY_CATEGORIES and category != n.reply_category:
         n.reply_category = category
+        category_changed = True
     elif category == "":
         n.reply_category = None
 
     db.session.commit()
+
+    # 아직 발송 전인 AI 답변 초안이 있다면, 바뀐 분류에 맞춰 문구를 다시 만든다.
+    # 이미 발송된 답변은 지나간 일이라 건드리지 않는다.
+    if category_changed:
+        draft = n.response_draft()
+        if draft:
+            draft.subject, draft.content = generate_reply_response(n.event, n.order, n)
+            db.session.commit()
+
     flash(f"{n.recipient.name}님 회신 처리상태를 갱신했습니다.", "success")
     return redirect(url_for("admin_notifications", event_id=n.event_id))
 
@@ -770,7 +820,6 @@ def employee_dashboard():
         "employee/dashboard.html",
         cards=cards,
         notifications=my_notifications,
-        reply_categories=Notification.REPLY_CATEGORIES,
     )
 
 
@@ -781,6 +830,10 @@ def employee_reply(notification_id):
 
     본인에게 온 메일인지를 user_id로 한 번 더 확인한다 — URL의 id만 바꿔서
     남의 메일에 회신한 것처럼 꾸미는 걸 막기 위해서다.
+
+    회신 유형은 조직원이 직접 고르지 않는다. 내용을 보고 시스템이 바로
+    분류하고, 그 유형에 맞는 답변 초안까지 함께 만들어 둔다 — 관리자가
+    할 일은 초안을 훑어보고 발송 버튼을 누르는 것만 남는다.
     """
     n = Notification.query.filter_by(
         id=notification_id, user_id=current_user.id, status=Notification.STATUS_SENT
@@ -790,19 +843,44 @@ def employee_reply(notification_id):
         return redirect(url_for("employee_dashboard"))
 
     content = request.form.get("content", "").strip()
-    category = request.form.get("category", "")
     if not content:
         flash("회신 내용을 입력해 주세요.", "error")
         return redirect(url_for("employee_dashboard"))
 
     n.reply_content = content
-    n.reply_category = category if category in Notification.REPLY_CATEGORIES else None
+    n.reply_category = classify_reply(content)
     n.reply_at = datetime.now()
     n.process_status = Notification.PROCESS_UNHANDLED
     db.session.commit()
 
+    _create_response_draft(n)
+
     flash("회신을 보냈습니다.", "success")
     return redirect(url_for("employee_dashboard"))
+
+
+def _create_response_draft(source):
+    """회신 한 건에 대한 AI 답변 초안을 만든다. 이미 있으면 새로 만들지 않는다."""
+    existing = Notification.query.filter_by(
+        in_reply_to_id=source.id, notification_type="회신 답변"
+    ).first()
+    if existing:
+        return existing
+
+    subject, content = generate_reply_response(source.event, source.order, source)
+    draft = Notification(
+        event_id=source.event_id,
+        user_id=source.user_id,
+        order_id=source.order_id,
+        in_reply_to_id=source.id,
+        notification_type="회신 답변",
+        subject=subject,
+        content=content,
+        status=Notification.STATUS_PENDING,
+    )
+    db.session.add(draft)
+    db.session.commit()
+    return draft
 
 
 # --------------------------------------------------------------------------

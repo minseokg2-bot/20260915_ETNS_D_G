@@ -84,10 +84,11 @@
     {% if drafts %}
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>이름</th><th>부서</th><th>제목</th><th>본문 미리보기</th><th></th></tr></thead>
+          <thead><tr><th>구분</th><th>이름</th><th>부서</th><th>제목</th><th>본문 미리보기</th><th></th></tr></thead>
           <tbody>
             {% for n in drafts %}
             <tr>
+              <td>{% if n.notification_type == '1차 안내' %}<span class="badge badge-navy">1차 안내</span>{% else %}<span class="badge badge-warn">AI 회신 답변</span>{% endif %}</td>
               <td class="name-cell">{{ n.recipient.name }}</td>
               <td>{{ n.recipient.department }}</td>
               <td>{{ n.subject }}</td>
@@ -105,6 +106,10 @@
           </tbody>
         </table>
       </div>
+      <p class="meta" style="font-size:12px; color:var(--muted); margin:8px 0 0;">
+        AI 회신 답변은 조직원이 회신을 보내면 자동으로 초안이 만들어집니다. 아래 "이메일 일괄 발송 시작"에
+        포함되며, 조직원별 상세의 "회신 보기"에서 한 건씩 바로 보낼 수도 있습니다.
+      </p>
 
       <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
         <form method="post">
@@ -189,12 +194,16 @@
               </td>
             </tr>
             {% if n.reply_content %}
+            {% set draft = n.response_draft() %}
+            {% set sent_response = (n.responses | selectattr('status', 'equalto', '발송 완료') | first) %}
+            {% set failed_response = (n.responses | selectattr('status', 'equalto', '발송 실패') | first) %}
             <tr id="reply-row-{{ n.id }}" hidden>
               <td colspan="9">
+                <p class="meta" style="font-size:11.5px; color:var(--muted); margin:0 0 4px;">조직원이 보낸 회신</p>
                 <div class="mail-preview" style="margin-bottom:10px;">{{ n.reply_content }}</div>
                 <form method="post" action="{{ url_for('admin_update_notification_process', notification_id=n.id) }}" class="form-row" style="align-items:flex-end;">
                   <label style="flex:none; width:160px;">
-                    <span>회신 유형</span>
+                    <span>회신 유형 (자동 분류, 수정 가능)</span>
                     <select name="reply_category">
                       <option value="">미분류</option>
                       {% for c in reply_categories %}
@@ -212,6 +221,33 @@
                   </label>
                   <button class="btn btn-sm btn-primary" type="submit">저장</button>
                 </form>
+
+                <div style="margin-top:16px; padding-top:14px; border-top:1px dashed var(--line);">
+                  {% if sent_response %}
+                    <p class="meta" style="font-size:11.5px; color:var(--muted); margin:0 0 4px;">
+                      ✅ AI 답변 발송 완료 · {{ sent_response.sent_at.strftime('%m/%d %H:%M') }}
+                    </p>
+                    <div class="mail-preview">{{ sent_response.content }}</div>
+                  {% elif draft %}
+                    <p class="meta" style="font-size:11.5px; color:var(--muted); margin:0 0 4px;">
+                      🤖 AI가 자동으로 작성한 답변 초안 — 확인 후 발송하세요
+                    </p>
+                    <div class="mail-preview" id="response-preview-{{ n.id }}">{{ draft.content }}</div>
+                    <div style="margin-top:8px;">
+                      <button class="btn btn-sm btn-primary" onclick="sendResponse({{ draft.id }}, this)">이 답변 발송</button>
+                    </div>
+                  {% elif failed_response %}
+                    <p class="meta" style="font-size:11.5px; color:var(--danger); margin:0 0 4px;">
+                      ❌ 답변 발송 실패 — {{ failed_response.fail_reason }}
+                    </p>
+                    <div class="mail-preview">{{ failed_response.content }}</div>
+                    <div style="margin-top:8px;">
+                      <button class="btn btn-sm" onclick="resendNotification({{ failed_response.id }}, this)">재발송</button>
+                    </div>
+                  {% else %}
+                    <p class="meta" style="font-size:12px; color:var(--muted);">답변 초안이 아직 없습니다.</p>
+                  {% endif %}
+                </div>
               </td>
             </tr>
             {% endif %}
@@ -246,6 +282,25 @@ async function resendNotification(id, btn) {
     btn.disabled = false;
     btn.textContent = '재발송';
     alert('재발송 대기열로 옮기지 못했습니다.');
+  }
+}
+
+async function sendResponse(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '발송 중…';
+  const res = await fetch(`/api/notification/${id}/send-single`, { method: 'POST' });
+  const data = await res.json();
+  if (res.ok && data.processed && data.processed.status === '발송 완료') {
+    location.reload();
+  } else if (res.ok && data.processed) {
+    // 드물게 시뮬레이션상 실패로 나올 수 있다 — 새로고침하면 발송 실패 상태로 보이고,
+    // 조직원별 상세 표의 재발송 버튼은 1차 안내용이라, 답변 재시도는 다시 이 버튼으로 한다.
+    alert(`발송에 실패했습니다: ${data.processed.fail_reason || '알 수 없는 오류'} — 다시 시도해 주세요.`);
+    location.reload();
+  } else {
+    btn.disabled = false;
+    btn.textContent = '이 답변 발송';
+    alert(data.error || '발송하지 못했습니다.');
   }
 }
 

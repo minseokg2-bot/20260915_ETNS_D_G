@@ -244,6 +244,9 @@ class Notification(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     order_id = db.Column(db.Integer, db.ForeignKey("employee_orders.id"), nullable=False)
 
+    # 이 건이 어떤 회신에 대한 답변인지. "1차 안내"에는 비어 있고, "회신 답변"에만 찬다.
+    in_reply_to_id = db.Column(db.Integer, db.ForeignKey("notifications.id"))
+
     notification_type = db.Column(db.String(20), nullable=False, default="1차 안내")
     subject = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
@@ -258,6 +261,19 @@ class Notification(db.Model):
     process_status = db.Column(db.String(20), nullable=False, default=PROCESS_UNHANDLED)
 
     recipient = db.relationship("User", foreign_keys=[user_id])
+
+    # "회신 답변" 건이 어느 회신에 대한 답인지. 자기 자신을 가리키는 self-referential FK라
+    # remote_side를 명시해야 SQLAlchemy가 어느 쪽이 "부모"인지 헷갈리지 않는다.
+    responses = db.relationship(
+        "Notification",
+        backref=db.backref("in_reply_to", remote_side=[id]),
+        foreign_keys=[in_reply_to_id],
+    )
+
+    def response_draft(self):
+        """이 회신에 대해 이미 만들어 둔 AI 답변 초안 (없으면 None)."""
+        drafts = [r for r in self.responses if r.status == Notification.STATUS_PENDING]
+        return drafts[0] if drafts else None
 
     @property
     def reply_status(self):

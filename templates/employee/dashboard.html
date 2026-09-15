@@ -53,14 +53,17 @@
         <div class="label">보낸 회신 {% if n.reply_category %}· {{ n.reply_category }}{% endif %} · {{ n.reply_at.strftime('%Y-%m-%d %H:%M') }}</div>
         {{ n.reply_content }}
       </div>
+      {% set sent_response = (n.responses | selectattr('status', 'equalto', '발송 완료') | first) %}
+      {% if sent_response %}
+        <div class="reply-done-box" style="background:var(--blue-50);">
+          <div class="label">담당자 답변 · {{ sent_response.sent_at.strftime('%Y-%m-%d %H:%M') }}</div>
+          {{ sent_response.content }}
+        </div>
+      {% else %}
+        <p class="meta" style="font-size:12px; color:var(--muted); margin:8px 0 0;">담당자 확인 후 답변 예정입니다.</p>
+      {% endif %}
     {% else %}
       <form class="reply-form" method="post" action="{{ url_for('employee_reply', notification_id=n.id) }}">
-        <select name="category">
-          <option value="">유형 선택 (선택)</option>
-          {% for c in reply_categories %}
-            <option value="{{ c }}">{{ c }}</option>
-          {% endfor %}
-        </select>
         <textarea name="content" rows="3" placeholder="회신 내용을 입력해 주세요" required></textarea>
         <div><button class="btn btn-primary btn-sm" type="submit">회신 보내기</button></div>
       </form>
