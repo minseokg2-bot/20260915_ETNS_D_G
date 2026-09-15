@@ -24,7 +24,7 @@ from werkzeug.security import check_password_hash
 
 from config import Config
 from mailwriter import generate_email
-from models import DestinationLeadTime, EmployeeOrder, Event, Notification, User, db
+from models import EMAIL_RE, DestinationLeadTime, EmployeeOrder, Event, Notification, User, db
 from seed import seed_if_empty
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -541,12 +541,87 @@ def api_notifications():
 
 # --------------------------------------------------------------------------
 # 관리자 — 조직원 관리
+#
+# "계정 이메일"(User.email, 로그인 계정에 붙은 값)과 "이번 행사 연락 이메일"
+# (EmployeeOrder.email, 행사마다 따로 받는 값)은 서로 다른 컬럼이다. 안내메일
+# 발송 전 자료 점검은 후자만 본다 — 실제로 안내가 나가는 주소이기 때문이다.
+# 화면에 둘 다 보여주고, 발송을 막는 건 후자라는 걸 분명히 한다.
 # --------------------------------------------------------------------------
 @app.route("/admin/employees")
 @admin_required
 def admin_employees():
+    events = Event.query.order_by(Event.id.desc()).all()
+    event = _current_event(request.args.get("event_id", type=int))
+
     employees = User.query.filter_by(role="employee").order_by(User.department, User.name).all()
-    return render_template("admin/employees.html", employees=employees)
+
+    rows = []
+    if event:
+        orders_by_user = {
+            o.user_id: o for o in EmployeeOrder.query.filter_by(event_id=event.id).all()
+        }
+        for u in employees:
+            rows.append({"user": u, "order": orders_by_user.get(u.id)})
+    else:
+        rows = [{"user": u, "order": None} for u in employees]
+
+    return render_template("admin/employees.html", events=events, event=event, rows=rows)
+
+
+@app.route("/admin/employees/orders/<int:order_id>/edit", methods=["GET", "POST"])
+@admin_required
+def admin_employee_order_edit(order_id):
+    order = db.session.get(EmployeeOrder, order_id)
+    if order is None:
+        abort(404)
+
+    lead_times = DestinationLeadTime.query.order_by(DestinationLeadTime.name).all()
+    lead_time_map = {lt.name: lt.lead_time_days for lt in lead_times}
+
+    if request.method == "POST":
+        destination = request.form.get("destination", "").strip()
+        phone = request.form.get("phone", "").strip()
+        email = request.form.get("email", "").strip()
+        desired_raw = request.form.get("desired_delivery_date", "").strip()
+
+        error = None
+        if not destination:
+            error = "주재지를 선택해 주세요."
+        elif destination not in lead_time_map:
+            error = "등록되지 않은 주재지입니다. 행사 관리 화면에서 먼저 배송 소요일을 설정해 주세요."
+        elif not phone:
+            error = "연락처를 입력해 주세요."
+        elif not email:
+            error = "이메일을 입력해 주세요."
+        elif not EMAIL_RE.match(email):
+            error = "이메일 형식을 확인해 주세요. (예: name@example.com)"
+        elif not desired_raw:
+            error = "수령 희망일을 입력해 주세요."
+
+        if not error:
+            try:
+                desired_date = datetime.strptime(desired_raw, "%Y-%m-%d").date()
+            except ValueError:
+                error = "수령 희망일 형식을 확인해 주세요."
+
+        if error:
+            flash(error, "error")
+            return render_template(
+                "admin/employee_edit.html", order=order, lead_times=lead_times, form=request.form
+            )
+
+        order.destination = destination
+        order.delivery_days = lead_time_map[destination]
+        order.desired_delivery_date = desired_date
+        order.phone = phone
+        order.email = email
+        order.recalc_deadline()
+        db.session.commit()
+
+        flash(f"{order.user.name}님의 정보를 수정했습니다.", "success")
+        return redirect(url_for("admin_employees", event_id=order.event_id))
+
+    return render_template("admin/employee_edit.html", order=order, lead_times=lead_times, form=None)
 
 
 # --------------------------------------------------------------------------
@@ -631,4 +706,7 @@ except Exception as exc:  # noqa: BLE001 - 기동을 막지 않기 위해 전부
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    # use_reloader=False: 리로더를 켜면 감시용 프로세스와 실행용 프로세스가 별도로
+    # 뜨는데, 같은 SQLite 파일에 두 프로세스가 동시에 seed를 시도하다 몇 번
+    # 데이터가 꼬였다. 코드 수정 후에는 서버를 직접 재시작해서 반영한다.
+    app.run(host="127.0.0.1", port=5050, debug=True, use_reloader=False)

@@ -3,25 +3,65 @@
 {% block page_title %}조직원 관리{% endblock %}
 
 {% block content %}
-<div class="card">
-  <div class="card-title">조직원 목록 <span class="muted">{{ employees|length }}명</span></div>
-  <div class="table-wrap">
-    <table class="data">
-      <thead><tr><th>이름</th><th>아이디</th><th>부서</th><th>직급</th><th>이메일</th></tr></thead>
-      <tbody>
-        {% for e in employees %}
-        <tr>
-          <td class="name-cell">{{ e.name }}</td>
-          <td>{{ e.username }}</td>
-          <td>{{ e.department or '-' }}</td>
-          <td>{{ e.position or '-' }}</td>
-          <td>{{ e.email or '-' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="empty-state">등록된 조직원이 없습니다.</td></tr>
+{% if not event %}
+  <div class="card"><p class="empty-state">등록된 행사가 없습니다.</p></div>
+{% else %}
+  <div class="event-header">
+    <div>
+      <h2>{{ event.name }}</h2>
+      <p class="meta">계정 이메일은 로그인용, 연락 이메일은 이번 행사 안내 발송에 실제로 쓰이는 값입니다.</p>
+    </div>
+    <form class="event-select" method="get">
+      <select name="event_id" onchange="this.form.submit()">
+        {% for e in events %}
+          <option value="{{ e.id }}" {{ 'selected' if e.id == event.id }}>{{ e.name }}</option>
         {% endfor %}
-      </tbody>
-    </table>
+      </select>
+    </form>
   </div>
-</div>
+
+  <div class="card">
+    <div class="card-title">조직원 목록 <span class="muted">{{ rows|length }}명</span></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>이름</th><th>부서</th><th>계정 이메일</th>
+            <th>연락 이메일 <span class="muted" style="font-weight:400;">(이번 행사)</span></th>
+            <th>연락처</th><th>주재지</th><th>수령 희망일</th><th>자료 상태</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          {% set o = r.order %}
+          <tr>
+            <td class="name-cell">{{ r.user.name }}</td>
+            <td>{{ r.user.department or '-' }}</td>
+            <td>{{ r.user.email or '-' }}</td>
+            {% if o %}
+              <td>{{ o.email or '-' }}</td>
+              <td>{{ o.phone or '-' }}</td>
+              <td>{{ o.destination or '-' }}</td>
+              <td>{{ o.desired_delivery_date.strftime('%Y-%m-%d') if o.desired_delivery_date else '-' }}</td>
+              <td>
+                {% set errs = o.validation_errors() %}
+                {% if errs %}
+                  <span class="badge badge-danger" title="{{ errs | join(', ') }}">오류 {{ errs|length }}건</span>
+                {% else %}
+                  <span class="badge badge-ok">정상</span>
+                {% endif %}
+              </td>
+              <td><a class="btn btn-sm" href="{{ url_for('admin_employee_order_edit', order_id=o.id) }}">수정</a></td>
+            {% else %}
+              <td colspan="5" class="empty-state" style="padding:10px;">이 행사에 참여하지 않음</td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="empty-state">등록된 조직원이 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}

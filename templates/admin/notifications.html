@@ -22,10 +22,13 @@
 
   {% if error_orders %}
     <div class="warning-box">
-      <div class="title">⚠ 자료 확인 필요 {{ error_orders|length }}건 — 아래 대상자는 안내 발송에서 자동 제외됩니다</div>
+      <div class="title">⚠ 이번 행사 연락처 확인 필요 {{ error_orders|length }}건 — 아래 대상자는 안내 발송에서 자동 제외됩니다</div>
       <ul>
         {% for o in error_orders %}
-          <li>{{ o.user.name }} ({{ o.user.department }}) — {{ o.validation_errors() | join(', ') }}</li>
+          <li>
+            {{ o.user.name }} ({{ o.user.department }}) — {{ o.validation_errors() | join(', ') }}
+            <a href="{{ url_for('admin_employee_order_edit', order_id=o.id) }}">수정하기</a>
+          </li>
         {% endfor %}
       </ul>
     </div>

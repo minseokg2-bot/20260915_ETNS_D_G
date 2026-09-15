@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ order.user.name }} 정보 수정 · 배송운영 관리{% endblock %}
+{% block page_title %}조직원 정보 수정{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:480px;">
+  <div class="card-title">{{ order.user.name }} <span class="muted">{{ order.user.department }} · {{ order.event.name }}</span></div>
+
+  <p class="meta" style="margin:-6px 0 16px; font-size:12.5px; color:var(--muted);">
+    계정 이메일 <strong>{{ order.user.email or '(없음)' }}</strong>은 로그인용이라 여기서 바꿀 수 없습니다.
+    아래 항목은 이번 행사 안내메일이 실제로 발송되는 연락처입니다.
+  </p>
+
+  {% set errs = order.validation_errors() %}
+  {% if errs %}
+    <div class="warning-box">
+      <div class="title">⚠ 현재 자료 문제 {{ errs|length }}건 — 안내 발송에서 제외되는 중</div>
+      <ul>{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  <form class="form-grid" method="post">
+    <label>
+      <span>주재지</span>
+      <select name="destination" required>
+        <option value="">선택하세요</option>
+        {% for lt in lead_times %}
+          <option value="{{ lt.name }}" {{ 'selected' if (form.destination if form else order.destination) == lt.name }}>
+            {{ lt.name }} (배송 {{ lt.lead_time_days }}일)
+          </option>
+        {% endfor %}
+      </select>
+      <small>여기서 정한 배송 소요일로 주문 마감일이 자동 재계산됩니다.</small>
+    </label>
+
+    <label>
+      <span>수령 희망일</span>
+      <input type="date" name="desired_delivery_date"
+             value="{{ form.desired_delivery_date if form else (order.desired_delivery_date.isoformat() if order.desired_delivery_date else '') }}" required>
+    </label>
+
+    <label>
+      <span>연락처</span>
+      <input type="text" name="phone" value="{{ form.phone if form else (order.phone or '') }}" placeholder="010-0000-0000" required>
+    </label>
+
+    <label>
+      <span>연락 이메일 (이번 행사)</span>
+      <input type="email" name="email" value="{{ form.email if form else (order.email or '') }}" placeholder="name@example.com" required>
+    </label>
+
+    <div class="form-row">
+      <button class="btn btn-primary" type="submit">저장</button>
+      <a class="btn btn-ghost" href="{{ url_for('admin_employees', event_id=order.event_id) }}">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
