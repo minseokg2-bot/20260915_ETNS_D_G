@@ -406,7 +406,9 @@ def admin_notifications():
                 if order.ordered or order.validation_errors():
                     continue  # 이미 주문했거나 자료에 문제가 있으면 초안조차 만들지 않는다
                 exists = Notification.query.filter_by(
-                    order_id=order.id, status=Notification.STATUS_PENDING
+                    order_id=order.id,
+                    status=Notification.STATUS_PENDING,
+                    notification_type="1차 안내",
                 ).first()
                 if exists:
                     continue
